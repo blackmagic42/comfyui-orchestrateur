@@ -3,22 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>orchestrator@magascii: tail -f workflows</title>
+<title>orchestrator@magascii — control tower</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  /* ── Magascii CRT amber-on-black theme ─────────────────────────────── */
+  /* ── Magascii CRT amber — tuned for control-tower (less log-feel) ─── */
   :root {
     --bg:        #0a0806;
     --screen:    #0e0b07;
+    --panel:     rgba(0,0,0,0.30);
     --amber:     #f5a30b;
     --amber-dim: #9c6405;
-    --amber-soft:rgba(245, 163, 11, 0.08);
-    --amber-glow:rgba(245, 163, 11, 0.55);
+    --amber-soft:rgba(245, 163, 11, 0.07);
+    --amber-glow:rgba(245, 163, 11, 0.40);
     --muted:     #7a6a4a;
-    --line:      rgba(245, 163, 11, 0.20);
-    --line-soft: rgba(245, 163, 11, 0.08);
+    --line:      rgba(245, 163, 11, 0.18);
+    --line-soft: rgba(245, 163, 11, 0.07);
     --text:      #e8d9b0;
     --text-dim:  #b8a57a;
     --ok:        #7ad67a;
@@ -40,16 +41,17 @@
   body::before {
     content: "";
     position: fixed; inset: 0;
-    background: radial-gradient(ellipse at center, var(--bg) 0%, #000 85%);
+    background: radial-gradient(ellipse at center, var(--bg) 0%, #000 90%);
     pointer-events: none; z-index: 0;
   }
+  /* Scanlines — reduced from 0.22 → 0.12 to feel less retro-log */
   body::after {
     content: "";
     position: fixed; inset: 0;
     pointer-events: none; z-index: 9999;
     background: repeating-linear-gradient(0deg,
       rgba(0,0,0,0) 0px, rgba(0,0,0,0) 2px,
-      rgba(0,0,0,0.22) 3px, rgba(0,0,0,0.22) 4px);
+      rgba(0,0,0,0.12) 3px, rgba(0,0,0,0.12) 4px);
     mix-blend-mode: multiply;
   }
 
@@ -60,8 +62,8 @@
     display: flex; flex-direction: column;
     background: var(--screen);
     box-shadow:
-      inset 0 0 180px rgba(0,0,0,0.85),
-      inset 0 0 30px rgba(245,163,11,0.08);
+      inset 0 0 180px rgba(0,0,0,0.70),
+      inset 0 0 30px rgba(245,163,11,0.05);
     border: 1px solid var(--amber-dim);
     overflow: hidden;
   }
@@ -75,7 +77,7 @@
     font-size: 12px;
   }
   .term-dot {
-    width: 12px; height: 12px; border-radius: 50%;
+    width: 11px; height: 11px; border-radius: 50%;
     box-shadow: inset 0 0 4px rgba(0,0,0,0.6);
   }
   .term-dot.r { background: #ff5f56; }
@@ -90,42 +92,33 @@
   .term-clock {
     color: var(--amber);
     font-size: 12px; letter-spacing: 1px;
-    text-shadow: 0 0 6px var(--amber-glow);
+    font-variant-numeric: tabular-nums;
     min-width: 80px; text-align: right;
   }
 
   .term-screen {
     flex: 1; min-height: 0;
-    padding: 14px 22px 18px;
+    padding: 12px 18px 18px;
     overflow-y: auto;
-    color: var(--text);
-    text-shadow: 0 0 1px rgba(245,163,11,0.30);
   }
   .term-screen::-webkit-scrollbar { width: 10px; }
   .term-screen::-webkit-scrollbar-track { background: #0a0806; }
   .term-screen::-webkit-scrollbar-thumb { background: var(--amber-dim); }
   .term-screen::-webkit-scrollbar-thumb:hover { background: var(--amber); }
 
-  /* ── Banner / prompt ───────────────────────────────────────────────── */
-  .banner-sub {
-    color: var(--text-dim);
-    font-size: 11.5px; letter-spacing: 1px;
-    margin-bottom: 4px;
-  }
-  .banner-sub .host { color: var(--amber); text-shadow: 0 0 4px var(--amber-glow); }
-
+  /* ── Status strip (top, single row) ───────────────────────────────── */
   .stats-strip {
     display: flex; flex-wrap: wrap; gap: 14px;
-    padding: 8px 0 6px;
-    margin-bottom: 6px;
+    padding: 4px 0 8px;
+    margin-bottom: 12px;
     font-size: 11.5px;
     color: var(--muted);
     letter-spacing: 0.4px;
     border-bottom: 1px dashed var(--line);
   }
+  .stats-strip .label { color: var(--text-dim); }
   .stats-strip .stat em {
     font-style: normal; color: var(--amber);
-    text-shadow: 0 0 4px var(--amber-glow);
     font-weight: 600;
   }
   .stats-strip .stat.warn em { color: var(--warn); }
@@ -133,72 +126,63 @@
   .stats-strip .stat.ok   em { color: var(--ok); }
   .stats-strip .stat.run  em { color: var(--blue); }
   .stats-strip .live {
-    margin-left: auto; color: var(--ok);
+    margin-left: auto; color: var(--ok); font-weight: 600;
     animation: blink 1.5s step-end infinite;
   }
   .stats-strip .live.off { color: var(--muted); animation: none; }
   @keyframes blink { 0%,50% { opacity: 1; } 51%,100% { opacity: 0.3; } }
 
-  .prompt-line {
-    display: flex; gap: 10px; align-items: baseline;
-    padding: 6px 0;
-    font-size: 13px;
+  /* ── Control tower grid: main + side panel ────────────────────────── */
+  .tower {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 14px;
+    align-items: start;
   }
-  .ps1 { color: var(--ok); font-weight: 600; white-space: nowrap; }
-  .cmd { color: var(--text); }
-  .caret {
-    color: var(--amber);
-    animation: caretBlink 1.1s step-end infinite;
-    margin-left: 2px;
+  @media (max-width: 1100px) {
+    .tower { grid-template-columns: 1fr; }
   }
-  @keyframes caretBlink { 0%,50% { opacity: 1; } 51%,100% { opacity: 0; } }
+  .tower .main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .tower .side {
+    position: sticky; top: 0;
+    align-self: start;
+    max-height: calc(100vh - 110px);
+    display: flex; flex-direction: column;
+    min-height: 0;
+  }
 
-  /* ── Tabs (pills, terminal-flag style) ─────────────────────────────── */
-  .pills {
-    display: flex; flex-wrap: wrap; gap: 6px;
-    padding: 8px 0 12px;
-    border-bottom: 1px dashed var(--line);
-    margin-bottom: 12px;
-  }
-  .pill {
-    background: transparent;
-    color: var(--amber-dim);
+  /* ── Section ───────────────────────────────────────────────────────── */
+  section.box {
     border: 1px solid var(--line);
-    font-family: var(--font);
-    font-size: 11.5px;
-    padding: 3px 10px;
-    cursor: pointer;
-    letter-spacing: 0.5px;
-    transition: all 0.15s;
+    background: var(--panel);
+    padding: 10px 14px 12px;
   }
-  .pill:hover { border-color: var(--amber); color: var(--amber); }
-  .pill.active {
-    border-color: var(--ok);
-    color: var(--ok);
-    text-shadow: 0 0 4px rgba(122,214,122,0.5);
-  }
-  .pill.danger { color: var(--err); border-color: rgba(255,85,85,0.35); }
-  .pill.danger:hover { border-color: var(--err); color: var(--err); }
-
-  /* ── Section headings ──────────────────────────────────────────────── */
-  .section-head {
+  section.box > h2 {
     color: var(--amber);
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    padding: 14px 0 6px;
-    border-top: 1px dashed var(--line-soft);
-    margin-top: 12px;
     font-size: 11.5px;
-    text-shadow: 0 0 4px var(--amber-glow);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px dashed var(--line-soft);
+    display: flex; align-items: baseline; gap: 8px;
   }
-  .section-head:first-child { border-top: none; margin-top: 0; padding-top: 4px; }
+  section.box > h2 .meta {
+    color: var(--muted);
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0.3px;
+    font-size: 11px;
+    margin-left: auto;
+  }
 
-  /* ── Banner setup (first run) ──────────────────────────────────────── */
+  /* ── Banner setup (first run) ─────────────────────────────────────── */
   .banner-box {
     border: 1px solid var(--amber-dim);
     background: var(--amber-soft);
     padding: 10px 14px;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
     display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
   }
   .banner-box h3 {
@@ -208,7 +192,6 @@
     text-transform: uppercase;
     margin-bottom: 4px;
     font-weight: 600;
-    text-shadow: 0 0 4px var(--amber-glow);
   }
   .banner-box .hints {
     font-size: 11.5px; color: var(--text-dim); line-height: 1.5;
@@ -246,23 +229,19 @@
     font-size: 12px;
     padding: 4px 12px;
     cursor: pointer;
-    letter-spacing: 0.6px;
+    letter-spacing: 0.5px;
     transition: all 0.15s;
   }
   button:hover:not(:disabled) {
     border-color: var(--amber);
     background: var(--amber-soft);
-    text-shadow: 0 0 4px var(--amber-glow);
   }
   button:disabled { opacity: 0.45; cursor: not-allowed; }
   button.primary {
     color: var(--ok);
     border-color: var(--ok);
   }
-  button.primary:hover:not(:disabled) {
-    background: rgba(122,214,122,0.10);
-    text-shadow: 0 0 4px rgba(122,214,122,0.5);
-  }
+  button.primary:hover:not(:disabled) { background: rgba(122,214,122,0.10); }
   button.danger {
     color: var(--err);
     border-color: rgba(255,85,85,0.45);
@@ -273,33 +252,224 @@
   }
   button.sm { padding: 2px 8px; font-size: 11.5px; }
 
-  /* ── Workflow grid (group + cards) ─────────────────────────────────── */
-  .grp {
-    border: 1px solid var(--line);
-    margin-bottom: 6px;
+  /* ── Instances (control tower's primary panel) ────────────────────── */
+  .inst-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 8px;
   }
+  .inst-card {
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--muted);
+    background: rgba(0,0,0,0.25);
+    padding: 8px 12px 10px;
+    transition: border-color 0.12s;
+  }
+  .inst-card.alive { border-left-color: var(--ok); }
+  .inst-card.busy  { border-left-color: var(--blue); }
+  .inst-card.idle  { border-left-color: var(--muted); }
+  .inst-card.add   { border-style: dashed; border-left: 1px dashed var(--amber-dim); }
+  .inst-card .head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 4px;
+  }
+  .inst-card .url {
+    color: var(--amber); font-weight: 600;
+    text-shadow: 0 0 4px var(--amber-glow);
+  }
+  .inst-card .pill-state {
+    font-size: 10.5px; padding: 1px 6px;
+    border: 1px solid var(--line);
+    color: var(--muted);
+    letter-spacing: 0.4px; text-transform: uppercase;
+  }
+  .inst-card.alive .pill-state { color: var(--ok); border-color: rgba(122,214,122,0.30); }
+  .inst-card.busy  .pill-state { color: var(--blue); border-color: rgba(136,182,255,0.30); }
+  .inst-card .row {
+    display: flex; gap: 12px; flex-wrap: wrap;
+    color: var(--text-dim); font-size: 11.5px;
+    margin-bottom: 4px;
+  }
+  .inst-card .row em {
+    font-style: normal; color: var(--amber);
+    font-variant-numeric: tabular-nums;
+  }
+  .inst-card .now {
+    font-size: 11px; color: var(--muted);
+    margin-top: 4px; padding-top: 4px;
+    border-top: 1px dashed var(--line-soft);
+    font-style: italic;
+  }
+  .inst-card .now strong { color: var(--blue); font-style: normal; }
+  .inst-card .actions {
+    display: flex; gap: 4px; margin-top: 6px;
+  }
+
+  /* ── Live stream (sticky side panel) ───────────────────────────────── */
+  .stream-box {
+    flex: 1; min-height: 0;
+    overflow-y: auto;
+    background: rgba(0,0,0,0.35);
+    border: 1px solid var(--line);
+    padding: 6px 10px;
+    font-size: 11.5px;
+    line-height: 1.5;
+  }
+  .stream-box::-webkit-scrollbar { width: 6px; }
+  .stream-box::-webkit-scrollbar-thumb { background: var(--amber-dim); }
+  .stream-row {
+    display: grid;
+    grid-template-columns: 64px 50px 60px 1fr;
+    gap: 8px;
+    padding: 1px 0;
+    color: var(--text);
+  }
+  .stream-row:hover { background: var(--amber-soft); }
+  .stream-row .t { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .stream-row .k {
+    color: var(--amber); text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 10.5px;
+  }
+  .stream-row .src { color: var(--blue); font-size: 11px; }
+  .stream-row .m { color: var(--text); word-break: break-word; font-size: 11.5px; }
+  .stream-row.kind-warn  .k, .stream-row.kind-warn  .m { color: var(--warn); }
+  .stream-row.kind-error .k, .stream-row.kind-error .m { color: var(--err); }
+  .stream-row.kind-ok    .k { color: var(--ok); }
+
+  /* ── Bundle slider ─────────────────────────────────────────────────── */
+  .bundle-box {
+    border: 1px solid var(--line);
+    background: rgba(0,0,0,0.20);
+    padding: 10px 12px;
+    margin-bottom: 12px;
+  }
+  .bundle-presets {
+    display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px;
+  }
+  .bundle-presets button { flex: 1; min-width: 110px; }
+  .slider-row {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 8px;
+  }
+  .slider-row > .lbl {
+    color: var(--amber-dim); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  #budgetSlider { flex: 1; accent-color: var(--amber); background: transparent; }
+  #budgetVal {
+    color: var(--amber);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    min-width: 80px; text-align: right;
+  }
+
+  /* ── Commands panel ────────────────────────────────────────────────── */
+  .cmd-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 6px;
+  }
+  .cmd-card {
+    border: 1px solid var(--line);
+    padding: 8px 10px;
+    background: rgba(0,0,0,0.20);
+    transition: border-color 0.12s;
+  }
+  .cmd-card:hover { border-color: var(--amber-dim); }
+  .cmd-card h3 {
+    color: var(--amber);
+    font-size: 12px; letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .cmd-card .desc {
+    font-size: 10.5px; color: var(--text-dim);
+    margin-bottom: 6px; line-height: 1.4;
+    max-height: 2.4em; overflow: hidden;
+  }
+  .cmd-params { display: grid; gap: 3px; margin-bottom: 6px; }
+  .cmd-params label {
+    display: flex; flex-direction: column; gap: 1px;
+    font-size: 9.5px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .cmd-params input { padding: 1px 6px; font-size: 11.5px; }
+  .cmd-card-foot {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 6px;
+  }
+  .cmd-status { font-size: 11px; color: var(--muted); }
+  .cmd-status.running   { color: var(--blue); }
+  .cmd-status.ok        { color: var(--ok); }
+  .cmd-status.error     { color: var(--err); }
+  .cmd-status.cancelled { color: var(--warn); }
+
+  .section-head-inline {
+    color: var(--muted);
+    font-size: 10.5px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin: 10px 0 4px;
+  }
+
+  .run-row {
+    border: 1px solid var(--line);
+    padding: 4px 8px;
+    margin-bottom: 3px;
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(0,0,0,0.20);
+    font-size: 11px;
+  }
+  .run-row .run-id {
+    color: var(--text-dim);
+    flex: 1; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* ── Workflows pills + groups ──────────────────────────────────────── */
+  .pills {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+    border-bottom: 1px dashed var(--line-soft);
+  }
+  .pill {
+    background: transparent;
+    color: var(--amber-dim);
+    border: 1px solid var(--line);
+    font-family: var(--font);
+    font-size: 11.5px;
+    padding: 2px 10px;
+    cursor: pointer;
+    letter-spacing: 0.4px;
+    transition: all 0.15s;
+  }
+  .pill:hover { border-color: var(--amber); color: var(--amber); }
+  .pill.active {
+    border-color: var(--ok); color: var(--ok);
+  }
+
+  .grp { border: 1px solid var(--line); margin-bottom: 5px; }
   .grp-head {
-    padding: 6px 12px; cursor: pointer; user-select: none;
+    padding: 5px 10px; cursor: pointer; user-select: none;
     display: flex; align-items: center; gap: 12px;
     color: var(--amber);
-    font-size: 12px;
-    letter-spacing: 1px;
+    font-size: 11.5px;
+    letter-spacing: 0.5px;
   }
   .grp-head:hover { background: var(--amber-soft); }
   .grp-name { flex: 1; }
   .grp-stats {
-    font-size: 11px; color: var(--muted);
+    font-size: 10.5px; color: var(--muted);
     font-variant-numeric: tabular-nums;
   }
   .grp-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 4px; padding: 6px 8px 8px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 4px; padding: 5px 8px 7px;
     border-top: 1px dashed var(--line-soft);
   }
   .grp.collapsed .grp-grid { display: none; }
-
   .card {
-    padding: 6px 10px;
+    padding: 5px 9px;
     background: rgba(0,0,0,0.25);
     border: 1px solid var(--line);
     border-left: 3px solid var(--muted);
@@ -313,7 +483,6 @@
   .card.timeout { border-left-color: var(--warn); }
   .card.running { border-left-color: var(--blue); animation: pulse 1.5s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: 0.55; } }
-
   .card-name { color: var(--text); word-break: break-word; }
   .card-meta {
     font-size: 10.5px; color: var(--muted);
@@ -323,9 +492,7 @@
   .tag {
     color: var(--amber);
     border: 1px solid var(--line-soft);
-    padding: 0 4px;
-    font-size: 10px;
-    letter-spacing: 0.3px;
+    padding: 0 4px; font-size: 10px;
   }
   .tag.ok  { color: var(--ok);   border-color: rgba(122,214,122,0.25); }
   .tag.run { color: var(--blue); border-color: rgba(136,182,255,0.25); }
@@ -334,45 +501,43 @@
     margin-top: 2px; max-height: 2.4em; overflow: hidden; line-height: 1.2;
   }
 
-  /* ── Modal ─────────────────────────────────────────────────────────── */
+  /* ── Submit form (small inline panel) ──────────────────────────────── */
+  .submit-form {
+    display: grid; grid-template-columns: 1fr 2fr auto; gap: 6px;
+    margin-bottom: 6px;
+  }
+  .submit-form select, .submit-form input { width: 100%; }
+
+  /* ── Modal (unchanged shape, slightly tighter) ─────────────────────── */
   .modal-overlay {
     position: fixed; inset: 0;
-    background: rgba(0,0,0,0.8); backdrop-filter: blur(3px);
+    background: rgba(0,0,0,0.78); backdrop-filter: blur(3px);
     display: flex; align-items: center; justify-content: center;
     z-index: 100; padding: 1rem;
   }
   .modal-overlay.hidden { display: none; }
   .modal {
-    background: var(--screen);
-    border: 1px solid var(--amber-dim);
+    background: var(--screen); border: 1px solid var(--amber-dim);
     width: 100%; max-width: 1000px; max-height: 90vh;
     display: flex; flex-direction: column;
-    box-shadow: 0 0 40px rgba(245,163,11,0.18);
   }
   .modal-head {
-    padding: 8px 14px;
-    border-bottom: 1px solid var(--amber-dim);
+    padding: 8px 14px; border-bottom: 1px solid var(--amber-dim);
     display: flex; align-items: center; gap: 10px;
     background: linear-gradient(180deg, #1a1308, #0e0b07);
   }
   .modal-head h2 {
     flex: 1; color: var(--amber);
     font-size: 13px; letter-spacing: 1px;
-    text-shadow: 0 0 4px var(--amber-glow);
   }
-  .modal-body {
-    flex: 1; overflow-y: auto;
-    padding: 12px 16px;
-  }
+  .modal-body { flex: 1; overflow-y: auto; padding: 12px 16px; }
   .modal-body::-webkit-scrollbar { width: 8px; }
   .modal-body::-webkit-scrollbar-thumb { background: var(--amber-dim); }
-
   .detail-section { margin-bottom: 14px; }
   .detail-section h3 {
     font-size: 11px; color: var(--amber);
     letter-spacing: 1.5px; text-transform: uppercase;
     margin-bottom: 6px; font-weight: 600;
-    text-shadow: 0 0 4px var(--amber-glow);
   }
   .detail-grid {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -380,8 +545,7 @@
   }
   .detail-item {
     border: 1px solid var(--line);
-    padding: 5px 8px;
-    background: rgba(0,0,0,0.25);
+    padding: 5px 8px; background: rgba(0,0,0,0.25);
   }
   .detail-item .l {
     font-size: 10px; color: var(--muted);
@@ -389,10 +553,8 @@
   }
   .detail-item .v {
     font-size: 12px; color: var(--text);
-    margin-top: 2px;
-    word-break: break-word;
+    margin-top: 2px; word-break: break-word;
   }
-
   pre {
     border: 1px solid var(--line);
     background: rgba(0,0,0,0.4);
@@ -403,7 +565,6 @@
     color: var(--text); white-space: pre-wrap; word-break: break-all;
   }
   pre.compact { max-height: 160px; }
-
   .widget-row {
     display: grid; grid-template-columns: auto 1fr; gap: 8px;
     padding: 4px 8px;
@@ -413,121 +574,9 @@
   .widget-row .k { color: var(--blue); white-space: nowrap; }
   .widget-row .v { color: var(--text); word-break: break-all; }
 
-  /* ── Submit form ───────────────────────────────────────────────────── */
-  .submit-form {
-    display: grid; grid-template-columns: 1fr 2fr auto; gap: 8px;
-    margin-bottom: 8px;
-  }
-  .submit-form select, .submit-form input { width: 100%; }
-
-  /* ── Commands ──────────────────────────────────────────────────────── */
-  .cmd-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 6px;
-  }
-  .cmd-card {
-    border: 1px solid var(--line);
-    padding: 8px 12px;
-    background: rgba(0,0,0,0.2);
-    transition: border-color 0.12s, background 0.12s;
-  }
-  .cmd-card:hover { border-color: var(--amber-dim); }
-  .cmd-card h3 {
-    color: var(--amber);
-    font-size: 12px; letter-spacing: 0.5px;
-    margin-bottom: 4px;
-    text-shadow: 0 0 4px var(--amber-glow);
-  }
-  .cmd-card .desc {
-    font-size: 11px; color: var(--text-dim);
-    margin-bottom: 6px; line-height: 1.4;
-  }
-  .cmd-params { display: grid; gap: 4px; margin-bottom: 6px; }
-  .cmd-params label {
-    display: flex; flex-direction: column; gap: 2px;
-    font-size: 10px; color: var(--muted);
-    text-transform: uppercase; letter-spacing: 0.5px;
-  }
-  .cmd-params input { padding: 2px 6px; font-size: 12px; }
-  .cmd-card-foot {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 6px;
-  }
-  .cmd-status { font-size: 11px; color: var(--muted); }
-  .cmd-status.running   { color: var(--blue); }
-  .cmd-status.ok        { color: var(--ok); }
-  .cmd-status.error     { color: var(--err); }
-  .cmd-status.cancelled { color: var(--warn); }
-
-  /* Bundle panel */
-  .bundle-panel {
-    border: 1px solid var(--line);
-    padding: 12px;
-    background: rgba(0,0,0,0.2);
-  }
-  .bundle-presets {
-    display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;
-  }
-  .bundle-presets button { flex: 1; min-width: 110px; }
-  .slider-row {
-    display: flex; align-items: center; gap: 12px;
-    margin-bottom: 10px;
-  }
-  .slider-row > label {
-    color: var(--amber); font-size: 11.5px;
-    text-transform: uppercase; letter-spacing: 1px;
-  }
-  #budgetSlider { flex: 1; accent-color: var(--amber); }
-  #budgetVal {
-    color: var(--amber);
-    font-weight: 600;
-    text-shadow: 0 0 4px var(--amber-glow);
-    min-width: 80px; text-align: right;
-  }
-
-  /* Active runs */
-  .run-row {
-    border: 1px solid var(--line);
-    padding: 5px 10px;
-    margin-bottom: 4px;
-    display: flex; align-items: center; gap: 10px;
-    background: rgba(0,0,0,0.2);
-  }
-  .run-row .run-id {
-    font-size: 11px; color: var(--text-dim);
-    flex: 1; min-width: 0; overflow: hidden;
-    text-overflow: ellipsis; white-space: nowrap;
-  }
-
-  /* ── Live event stream ─────────────────────────────────────────────── */
-  .stream {
-    border: 1px solid var(--line);
-    background: rgba(0,0,0,0.4);
-    padding: 8px 12px;
-    max-height: 70vh; overflow-y: auto;
-    font-size: 12px; line-height: 1.55;
-  }
-  .stream-row {
-    display: grid;
-    grid-template-columns: 90px 70px 80px 1fr;
-    gap: 10px;
-    padding: 1px 0;
-    color: var(--text);
-  }
-  .stream-row:hover { background: var(--amber-soft); }
-  .stream-row .t { color: var(--muted); }
-  .stream-row .k {
-    color: var(--amber); text-transform: uppercase; letter-spacing: 0.6px;
-  }
-  .stream-row .src { color: var(--blue); }
-  .stream-row .m { color: var(--text); word-break: break-word; }
-  .stream-row.kind-warn  .k, .stream-row.kind-warn  .m { color: var(--warn); }
-  .stream-row.kind-error .k, .stream-row.kind-error .m { color: var(--err); }
-  .stream-row.kind-ok    .k { color: var(--ok); }
-
   .empty {
-    padding: 24px; text-align: center;
-    color: var(--muted); font-style: italic;
+    padding: 16px; text-align: center;
+    color: var(--muted); font-style: italic; font-size: 11.5px;
   }
 
   /* ── Toasts ────────────────────────────────────────────────────────── */
@@ -563,58 +612,76 @@
     <span class="term-dot r"></span>
     <span class="term-dot y"></span>
     <span class="term-dot g"></span>
-    <span class="term-title" id="term-title">orchestrator@magascii: ~/comfyui — workflow control plane</span>
+    <span class="term-title">orchestrator@magascii — control tower · <span id="banner-host">localhost:9100</span></span>
     <span class="term-clock" id="term-clock">--:--:--</span>
   </div>
 
   <div class="term-screen" id="term-screen">
 
-    <div class="banner-sub">
-      ComfyUI Orchestrator · v2.3 · <span class="host" id="banner-host">localhost</span>
-      &nbsp;|&nbsp; <span id="authStatus">connecting</span>
-    </div>
-
-    <div class="prompt-line">
-      <span class="ps1">orchestrator@magascii:~$</span>
-      <span class="cmd" id="cmd-display">tail -f workflows.log</span>
-      <span class="caret">▊</span>
-    </div>
-
     <div class="stats-strip" id="stats">
-      <span class="stat">total=<em id="st-total">0</em></span>
-      <span class="stat ok">ok=<em id="st-ok">0</em></span>
-      <span class="stat err">err=<em id="st-err">0</em></span>
-      <span class="stat warn">timeout=<em id="st-timeout">0</em></span>
-      <span class="stat run">run=<em id="st-running">0</em></span>
-      <span class="stat">untested=<em id="st-pending">0</em></span>
-      <span class="stat">inst=<em id="st-instances">0</em></span>
-      <span class="live" id="st-live">● LIVE</span>
+      <span class="stat"><span class="label">total</span> <em id="st-total">0</em></span>
+      <span class="stat ok"><span class="label">ok</span> <em id="st-ok">0</em></span>
+      <span class="stat err"><span class="label">err</span> <em id="st-err">0</em></span>
+      <span class="stat warn"><span class="label">timeout</span> <em id="st-timeout">0</em></span>
+      <span class="stat run"><span class="label">running</span> <em id="st-running">0</em></span>
+      <span class="stat"><span class="label">untested</span> <em id="st-pending">0</em></span>
+      <span class="stat"><span class="label">instances</span> <em id="st-instances">0</em></span>
+      <span class="stat"><span class="label">load</span> <em id="st-load">0</em></span>
+      <span class="live" id="st-live">● live</span>
     </div>
 
     <div class="banner-box" id="setupBanner" style="display:none">
       <div class="hints">
-        <h3>First-run setup</h3>
+        <h3>first-run setup</h3>
         <div id="setupHints"></div>
       </div>
       <div style="display:flex; gap:6px; flex-wrap:wrap">
-        <button class="primary" onclick="quickCommand('bootstrap_install')" id="btnBootstrap">Install ComfyUI</button>
-        <button onclick="goToTab('commands')">View all commands</button>
+        <button class="primary" onclick="quickCommand('bootstrap_install')" id="btnBootstrap">install comfyui</button>
       </div>
     </div>
 
-    <div class="pills" id="tabs">
-      <button class="pill active" data-tab="all">all</button>
-      <button class="pill" data-tab="running">running</button>
-      <button class="pill" data-tab="ok">success</button>
-      <button class="pill" data-tab="error">errors</button>
-      <button class="pill" data-tab="pending">untested</button>
-      <button class="pill" data-tab="live">live</button>
-      <button class="pill" data-tab="submit">submit</button>
-      <button class="pill" data-tab="commands">commands</button>
+    <div class="tower">
+      <div class="main">
+
+        <!-- INSTANCES (control tower's primary subject) -->
+        <section class="box">
+          <h2>comfyui instances <span class="meta" id="inst-meta">scanning…</span></h2>
+          <div class="inst-grid" id="instGrid"><div class="empty">scanning ports…</div></div>
+        </section>
+
+        <!-- COMMANDS -->
+        <section class="box">
+          <h2>commands <span class="meta">whitelisted scripts on the local host</span></h2>
+          <div id="cmdContent"><div class="empty">loading…</div></div>
+        </section>
+
+        <!-- WORKFLOWS -->
+        <section class="box">
+          <h2>workflows <span class="meta" id="wf-meta">—</span></h2>
+          <div class="pills" id="filterPills">
+            <button class="pill active" data-tab="all">all</button>
+            <button class="pill" data-tab="running">running</button>
+            <button class="pill" data-tab="ok">success</button>
+            <button class="pill" data-tab="error">errors</button>
+            <button class="pill" data-tab="pending">untested</button>
+            <button class="pill" data-tab="submit">submit</button>
+          </div>
+          <div id="wfContent"><div class="empty">loading…</div></div>
+        </section>
+
+      </div>
+
+      <!-- SIDE: live event stream -->
+      <aside class="side">
+        <section class="box" style="display:flex; flex-direction:column; min-height:0; height:100%">
+          <h2>live · event stream <span class="meta" id="live-meta">tail -f</span></h2>
+          <div class="stream-box" id="streamBox">
+            <div class="empty">no events yet</div>
+          </div>
+        </section>
+      </aside>
+
     </div>
-
-    <div id="content"><div class="empty">loading…</div></div>
-
   </div>
 </div>
 
@@ -638,22 +705,18 @@ if (window.ORCHESTRATOR_TOKEN) {
 }
 let DATA = null;
 let COMMANDS_DATA = null;
-let CURRENT_TAB = "all";
+let WF_FILTER = "all";
 let SEARCH = "";
-let LIVE_CONNECTED = true;
 
 // Live event stream state
-const LIVE = {
-  events: [],          // newest last
-  lastId: 0,
-  maxRows: 300,
-};
+const LIVE = { events: [], lastId: 0, maxRows: 250 };
 
+// ── Helpers ────────────────────────────────────────────────────────────
 function authHeaders() { return TOKEN ? { "Authorization": "Bearer " + TOKEN } : {}; }
 async function apiGet(path) {
   const r = await fetch(API + path, { headers: authHeaders() });
   if (r.status === 401) {
-    document.getElementById("authStatus").textContent = "auth required";
+    document.getElementById("st-live").textContent = "auth required";
     promptForToken(); throw new Error("auth required");
   }
   return await r.json();
@@ -686,6 +749,7 @@ function fmtTime(ts) {
   const p = n => String(n).padStart(2,"0");
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
+function cssEscape(s) { return String(s).replace(/(["\\])/g, "\\$1"); }
 
 // ── Header clock ───────────────────────────────────────────────────────
 function tickClock() {
@@ -696,6 +760,9 @@ function tickClock() {
 }
 setInterval(tickClock, 1000); tickClock();
 
+// Set host display
+document.getElementById("banner-host").textContent = window.location.host || "localhost";
+
 // ── Stats / instances ──────────────────────────────────────────────────
 function renderStats(s, instances) {
   document.getElementById("st-total").textContent    = s.total;
@@ -704,22 +771,106 @@ function renderStats(s, instances) {
   document.getElementById("st-timeout").textContent  = s.timeout;
   document.getElementById("st-running").textContent  = s.running || 0;
   document.getElementById("st-pending").textContent  = s.pending;
+  const totalLoad = (instances||[]).reduce((a,i)=>a+(i.load||0), 0);
   document.getElementById("st-instances").textContent = instances?.length || 0;
+  document.getElementById("st-load").textContent      = totalLoad;
   const liveEl = document.getElementById("st-live");
   if (instances && instances.length) {
-    liveEl.classList.remove("off");
-    liveEl.textContent = "● LIVE";
+    liveEl.classList.remove("off"); liveEl.textContent = "● live";
   } else {
-    liveEl.classList.add("off");
-    liveEl.textContent = "○ idle";
-  }
-  const auth = document.getElementById("authStatus");
-  if (instances && instances.length) {
-    auth.textContent = `${instances.length} instance${instances.length>1?"s":""}, load ${instances.reduce((a,i)=>a+i.load,0)}`;
-  } else {
-    auth.textContent = "no instance";
+    liveEl.classList.add("off"); liveEl.textContent = "○ idle";
   }
 }
+
+// Compute "what's running on each instance" from workflow data
+function jobsOnInstance(instUrl) {
+  if (!DATA) return [];
+  const out = [];
+  for (const g of DATA.groups) {
+    for (const w of g.workflows) {
+      if (w.status === "running" && w.instance === instUrl) {
+        out.push(w.tid);
+      }
+    }
+  }
+  return out;
+}
+
+function renderInstances(instances) {
+  const grid = document.getElementById("instGrid");
+  const meta = document.getElementById("inst-meta");
+  if (!instances || !instances.length) {
+    meta.textContent = "0 alive";
+    grid.innerHTML = `
+      <div class="inst-card add">
+        <div class="head"><span style="color:var(--text-dim)">no instance running</span></div>
+        <div class="row" style="font-size:11px">launch one with the <em>launch instance</em> command, or run <em>install comfyui</em> first.</div>
+      </div>`;
+    return;
+  }
+  const aliveCount = instances.filter(i => i.alive).length;
+  const totalLoad = instances.reduce((a,i)=>a+(i.load||0), 0);
+  meta.textContent = `${aliveCount} alive · total load ${totalLoad}`;
+
+  const cards = instances.map(i => {
+    const cls = !i.alive ? "" : ((i.load||0) > 0 ? "busy" : "alive idle");
+    const stateText = !i.alive ? "DOWN" : ((i.load||0) > 0 ? "BUSY" : "IDLE");
+    const jobs = jobsOnInstance(i.url);
+    return `
+      <div class="inst-card ${cls}">
+        <div class="head">
+          <span class="url">${escHTML(i.host)}:${i.port}</span>
+          <span class="pill-state">${stateText}</span>
+        </div>
+        <div class="row">
+          <span>running <em>${i.running||0}</em></span>
+          <span>queued <em>${i.pending||0}</em></span>
+          <span>load <em>${i.load||0}</em></span>
+        </div>
+        ${jobs.length ? `<div class="now">→ <strong>${escHTML(jobs.slice(0,2).join(", "))}</strong>${jobs.length>2?` +${jobs.length-2}`:""}</div>` : ""}
+        <div class="actions">
+          <button class="sm" onclick="window.open('${i.url}', '_blank')">open</button>
+        </div>
+      </div>`;
+  }).join("");
+
+  grid.innerHTML = cards;
+}
+
+// ── Live event stream ──────────────────────────────────────────────────
+function renderEventRow(ev) {
+  const klass = `kind-${ev.kind || "info"}`;
+  return `
+    <div class="stream-row ${klass}">
+      <span class="t">${fmtTime(ev.ts)}</span>
+      <span class="k">${escHTML(ev.kind || "info")}</span>
+      <span class="src">${escHTML(ev.source || "?")}</span>
+      <span class="m">${escHTML(ev.message || "")}</span>
+    </div>`;
+}
+function appendEventsToBox(events) {
+  const box = document.getElementById("streamBox");
+  if (!box) return;
+  if (LIVE.events.length === 0 && box.querySelector(".empty")) box.innerHTML = "";
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+  for (const ev of events) box.insertAdjacentHTML("beforeend", renderEventRow(ev));
+  // Trim from the top if we exceed maxRows
+  while (box.children.length > LIVE.maxRows) box.removeChild(box.firstChild);
+  if (nearBottom) box.scrollTop = box.scrollHeight;
+  document.getElementById("live-meta").textContent = `tail -f · ${LIVE.events.length} events`;
+}
+async function pollEvents() {
+  try {
+    const data = await apiGet(`/api/events?since=${LIVE.lastId}`);
+    if (data.events && data.events.length) {
+      LIVE.events.push(...data.events);
+      if (LIVE.events.length > LIVE.maxRows) LIVE.events = LIVE.events.slice(-LIVE.maxRows);
+      LIVE.lastId = data.last_id || LIVE.lastId;
+      appendEventsToBox(data.events);
+    }
+  } catch (e) { /* swallow */ }
+}
+setInterval(pollEvents, 1000);
 
 // ── Workflow grid ───────────────────────────────────────────────────────
 function renderGroups(groups, filter = "all") {
@@ -759,67 +910,12 @@ function renderGroups(groups, filter = "all") {
     </div>`).join("");
 }
 
-// ── Live event stream ──────────────────────────────────────────────────
-function renderLiveStream() {
-  const html = `
-    <div class="section-head">live event stream — tail -f</div>
-    <div style="font-size:11.5px; color:var(--muted); margin-bottom:8px">
-      Real-time orchestrator activity. Newest at the bottom. Polls every second.
-    </div>
-    <div class="stream" id="streamBox">
-      ${LIVE.events.length ? LIVE.events.map(renderEventRow).join("") : '<div class="empty">no events yet — kick off a command or job.</div>'}
-    </div>
-  `;
-  return html;
-}
-function renderEventRow(ev) {
-  const klass = `kind-${ev.kind || "info"}`;
-  return `
-    <div class="stream-row ${klass}">
-      <span class="t">${fmtTime(ev.ts)}</span>
-      <span class="k">${escHTML(ev.kind || "info")}</span>
-      <span class="src">${escHTML(ev.source || "?")}</span>
-      <span class="m">${escHTML(ev.message || "")}</span>
-    </div>
-  `;
-}
-async function pollEvents() {
-  try {
-    const data = await apiGet(`/api/events?since=${LIVE.lastId}`);
-    if (data.events && data.events.length) {
-      LIVE.events.push(...data.events);
-      // Trim from the head if too many
-      if (LIVE.events.length > LIVE.maxRows) {
-        LIVE.events = LIVE.events.slice(-LIVE.maxRows);
-      }
-      LIVE.lastId = data.last_id || LIVE.lastId;
-      // If the live tab is on screen, append rows; auto-scroll bottom
-      if (CURRENT_TAB === "live") {
-        const box = document.getElementById("streamBox");
-        if (box) {
-          // If user is scrolled near the bottom, keep auto-scroll
-          const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 50;
-          for (const ev of data.events) {
-            box.insertAdjacentHTML("beforeend", renderEventRow(ev));
-          }
-          if (nearBottom) box.scrollTop = box.scrollHeight;
-        }
-      }
-    }
-    LIVE_CONNECTED = true;
-  } catch (e) {
-    LIVE_CONNECTED = false;
-  }
-}
-setInterval(pollEvents, 1000);
-
-// ── Submit Job ──────────────────────────────────────────────────────────
+// ── Submit Job (compact, inline) ───────────────────────────────────────
 function renderSubmit() {
   if (!DATA) return "loading…";
   return `
-    <div class="section-head">submit a job</div>
-    <div style="color:var(--text-dim);font-size:11.5px;margin-bottom:8px">
-      Pick a workflow to run on an available instance.
+    <div style="color:var(--text-dim);font-size:11px;margin-bottom:8px">
+      pick a workflow to run on the least-loaded instance.
     </div>
     <div class="submit-form">
       <select id="catSelect" onchange="updateWfList()">
@@ -830,7 +926,7 @@ function renderSubmit() {
       <select id="wfSelect"></select>
       <button class="primary" onclick="submitJob()" id="submitBtn">run</button>
     </div>
-    <textarea id="promptInput" rows="3" placeholder="override prompt (optional)…"
+    <textarea id="promptInput" rows="2" placeholder="override prompt (optional)…"
       style="width:100%;resize:vertical;margin-top:6px"></textarea>
   `;
 }
@@ -857,7 +953,7 @@ async function submitJob() {
   finally { document.getElementById("submitBtn").disabled = false; }
 }
 
-// ── Commands panel ──────────────────────────────────────────────────────
+// ── Commands panel (always visible) ────────────────────────────────────
 const CMD_LABELS = {
   bootstrap_install: "install comfyui",
   apply_changes:     "apply changes",
@@ -872,10 +968,6 @@ const CMD_LABELS = {
   starters:          "generate starters",
   gated_check:       "check gated models",
   install_workflows: "install workflow files",
-  bundle_minimal:    "minimal preset",
-  bundle_image:      "image preset",
-  bundle_standard:   "standard preset",
-  bundle_full:       "full preset",
 };
 function cleanLabel(cid, fallback) {
   return CMD_LABELS[cid] || (fallback || cid).replace(/^[^a-zA-Z0-9]+/, "").trim().toLowerCase();
@@ -918,8 +1010,7 @@ async function renderCommands() {
     { name: "full",     budget: 1500, desc: "everything" },
   ];
   const bundlesHtml = `
-    <div class="section-head">model budget</div>
-    <div class="bundle-panel">
+    <div class="bundle-box">
       <div class="bundle-presets">
         ${PRESETS.map(b => `
           <button onclick="document.getElementById('budgetSlider').value=${b.budget};document.getElementById('budgetSlider').dispatchEvent(new Event('input'))"
@@ -928,18 +1019,18 @@ async function renderCommands() {
           </button>`).join("")}
       </div>
       <div class="slider-row">
-        <label>budget</label>
+        <span class="lbl">budget</span>
         <input id="budgetSlider" type="range" min="100" max="2000" step="50" value="700">
         <span id="budgetVal">700 GB</span>
       </div>
-      <div id="previewPanel"><div class="empty">move slider to preview…</div></div>
+      <div id="previewPanel"><div class="empty">move slider to preview</div></div>
     </div>`;
 
   const sectionsHtml = SECTIONS.map(sec => {
     const items = sec.ids.filter(id => cmds[id]).map(id => { used.add(id); return [id, cmds[id]]; });
     if (!items.length) return "";
     return `
-      <div class="section-head">${escHTML(sec.name)}</div>
+      <div class="section-head-inline">${escHTML(sec.name)}</div>
       <div class="cmd-grid">
         ${items.map(([cid, c]) => renderCmdCard(cid, c)).join("")}
       </div>`;
@@ -947,25 +1038,24 @@ async function renderCommands() {
 
   const leftover = Object.entries(cmds).filter(([cid]) => !used.has(cid));
   const leftoverHtml = leftover.length ? `
-    <div class="section-head">other</div>
+    <div class="section-head-inline">other</div>
     <div class="cmd-grid">
       ${leftover.map(([cid, c]) => renderCmdCard(cid, c)).join("")}
     </div>` : "";
 
-  const runsHtml = `
-    <div class="section-head">active &amp; recent runs</div>
-    <div id="cmdActiveList">
-      ${Object.entries(running||{}).map(([rid, info]) => {
-        const isRunning = info.status === "running";
-        return `
-          <div class="run-row">
-            <span class="cmd-status ${info.status}">${escHTML(info.status||"?")}</span>
-            <span class="run-id" title="${escHTML(rid)}">${escHTML(rid)}</span>
-            ${isRunning ? `<button class="danger sm" onclick="cancelRun('${rid}', this)">cancel</button>` : ""}
-            <button class="sm" onclick="showCommandLog('${rid}')">log</button>
-          </div>`;
-      }).join("") || '<div class="empty">no commands ran yet.</div>'}
-    </div>`;
+  const runEntries = Object.entries(running||{});
+  const runsHtml = runEntries.length ? `
+    <div class="section-head-inline">active &amp; recent runs</div>
+    ${runEntries.map(([rid, info]) => {
+      const isRunning = info.status === "running";
+      return `
+        <div class="run-row">
+          <span class="cmd-status ${info.status}">${escHTML(info.status||"?")}</span>
+          <span class="run-id" title="${escHTML(rid)}">${escHTML(rid)}</span>
+          ${isRunning ? `<button class="danger sm" onclick="cancelRun('${rid}', this)">cancel</button>` : ""}
+          <button class="sm" onclick="showCommandLog('${rid}')">log</button>
+        </div>`;
+    }).join("")}` : "";
 
   return bundlesHtml + sectionsHtml + leftoverHtml + runsHtml;
 }
@@ -980,7 +1070,7 @@ async function runCommand(cid, btn) {
     toast(`started: ${res.label || cid} (${res.id})`, "ok");
     card.querySelector("[data-status]").textContent = "running";
     card.querySelector("[data-status]").className = "cmd-status running";
-    setTimeout(() => { if (CURRENT_TAB === "commands") renderTab(); }, 500);
+    setTimeout(rerenderCommands, 500);
   } catch (e) { toast("error: " + e.message, "err"); }
   finally { setTimeout(() => btn.disabled = false, 800); }
 }
@@ -990,7 +1080,7 @@ async function cancelRun(rid, btn) {
     const res = await apiPost(`/api/command/cancel/${encodeURIComponent(rid)}`);
     if (res.error) throw new Error(res.error);
     toast(`cancelled ${rid}`, "ok");
-    setTimeout(() => { if (CURRENT_TAB === "commands") renderTab(); }, 250);
+    setTimeout(rerenderCommands, 250);
   } catch (e) {
     toast("cancel failed: " + e.message, "err");
     btn.disabled = false; btn.textContent = "cancel";
@@ -1025,8 +1115,7 @@ async function cancelRunFromModal(rid) {
     const res = await apiPost(`/api/command/cancel/${encodeURIComponent(rid)}`);
     if (res.error) throw new Error(res.error);
     toast(`cancelled ${rid}`, "ok");
-    closeModal();
-    setTimeout(() => { if (CURRENT_TAB === "commands") renderTab(); }, 250);
+    closeModal(); setTimeout(rerenderCommands, 250);
   } catch (e) { toast("cancel failed: " + e.message, "err"); }
 }
 
@@ -1054,13 +1143,11 @@ async function showDetails(tid) {
         </div>
       </div>
       ${w.default_prompts && w.default_prompts.length ? `
-        <div class="detail-section">
-          <h3>default prompts</h3>
+        <div class="detail-section"><h3>default prompts</h3>
           ${w.default_prompts.map(p => `<pre class="compact">${escHTML(p)}</pre>`).join("")}
         </div>` : ""}
       ${w.widgets_overview && w.widgets_overview.length ? `
-        <div class="detail-section">
-          <h3>key widgets</h3>
+        <div class="detail-section"><h3>key widgets</h3>
           ${w.widgets_overview.map(o => `
             <div class="widget-row">
               <span class="k">[${o.node_id}] ${escHTML(o.type)}</span>
@@ -1068,8 +1155,7 @@ async function showDetails(tid) {
             </div>`).join("")}
         </div>` : ""}
       ${w.last_run && w.last_run.status ? `
-        <div class="detail-section">
-          <h3>last run</h3>
+        <div class="detail-section"><h3>last run</h3>
           <div class="detail-grid">
             <div class="detail-item"><div class="l">status</div><div class="v">${escHTML(w.last_run.status)}</div></div>
             <div class="detail-item"><div class="l">duration</div><div class="v">${w.last_run.duration||'?'}s</div></div>
@@ -1117,18 +1203,13 @@ document.getElementById("modalOverlay").addEventListener("click", e => {
 });
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
 
-// ── Tabs / refresh ─────────────────────────────────────────────────────
+// ── Quick command + setup banner ───────────────────────────────────────
 async function quickCommand(cid, params = {}) {
   try {
     const res = await apiPost("/api/command", { id: cid, params });
     if (res.error) throw new Error(res.error);
     toast(`started: ${res.label || cid} (${res.id})`, "ok");
   } catch (e) { toast("error: " + e.message, "err"); }
-}
-function goToTab(name) {
-  document.querySelectorAll(".pill").forEach(x => x.classList.remove("active"));
-  document.querySelector(`[data-tab="${name}"]`).classList.add("active");
-  CURRENT_TAB = name; renderTab();
 }
 async function checkSetup() {
   try {
@@ -1157,25 +1238,12 @@ async function checkSetup() {
     }
   } catch (e) { /* swallow */ }
 }
+
+// ── Refresh loop ────────────────────────────────────────────────────────
 function userIsInteracting() {
   const a = document.activeElement;
   if (!a) return false;
   return a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT";
-}
-async function refresh() {
-  try {
-    const newData = await apiGet("/api/dashboard");
-    DATA = newData;
-    renderStats(DATA.stats, DATA.instances);
-    if (!userIsInteracting()) {
-      smartRenderTab();
-    } else {
-      patchWorkflowCards();
-    }
-    checkSetup();
-  } catch (e) {
-    if (e.message !== "auth required") console.warn("refresh failed:", e.message);
-  }
 }
 function patchWorkflowCards() {
   if (!DATA) return;
@@ -1187,31 +1255,41 @@ function patchWorkflowCards() {
     });
   }
 }
-function cssEscape(s) { return String(s).replace(/(["\\])/g, "\\$1"); }
-function smartRenderTab() {
-  const c = document.getElementById("content");
-  if (c.dataset.renderedTab !== CURRENT_TAB) {
-    renderTab();
-    c.dataset.renderedTab = CURRENT_TAB;
-  } else if (CURRENT_TAB === "all" || ["running","ok","error","pending"].includes(CURRENT_TAB)) {
-    patchWorkflowCards();
-    DATA.groups.forEach(g => {
-      const grpEl = document.querySelector(`.grp[data-grp="${cssEscape(g.name)}"] .grp-stats`);
-      if (grpEl) grpEl.textContent = `${g.ok}/${g.workflows.length} ok · ${g.error} err · ${g.pending} untested`;
-    });
+function rerenderWorkflows() {
+  const container = document.getElementById("wfContent");
+  if (WF_FILTER === "submit") {
+    container.innerHTML = renderSubmit();
+    setTimeout(updateWfList, 0);
+  } else {
+    container.innerHTML = renderGroups(DATA?.groups || [], WF_FILTER);
   }
+  // Update the meta line
+  const ok = DATA?.stats?.ok || 0, total = DATA?.stats?.total || 0;
+  document.getElementById("wf-meta").textContent = `${ok}/${total} ok`;
 }
-async function renderTab() {
-  const c = document.getElementById("content");
-  if (CURRENT_TAB === "submit")  { c.innerHTML = renderSubmit(); setTimeout(updateWfList, 0); return; }
-  if (CURRENT_TAB === "live")    { c.innerHTML = renderLiveStream(); setTimeout(() => { const b=document.getElementById("streamBox"); if (b) b.scrollTop = b.scrollHeight; }, 0); return; }
-  if (CURRENT_TAB === "commands"){
-    c.innerHTML = '<div class="empty">loading…</div>';
-    c.innerHTML = await renderCommands();
-    setTimeout(initBundleSlider, 0);
-    return;
+async function rerenderCommands() {
+  document.getElementById("cmdContent").innerHTML = await renderCommands();
+  setTimeout(initBundleSlider, 0);
+}
+async function refresh() {
+  try {
+    const newData = await apiGet("/api/dashboard");
+    DATA = newData;
+    renderStats(DATA.stats, DATA.instances);
+    renderInstances(DATA.instances);
+    if (!userIsInteracting()) {
+      // Update workflow grid in place if same filter
+      const wfRendered = document.querySelector("#wfContent .grp, #wfContent .empty, #wfContent select");
+      if (wfRendered) {
+        if (WF_FILTER !== "submit") patchWorkflowCards();
+      } else {
+        rerenderWorkflows();
+      }
+    }
+    checkSetup();
+  } catch (e) {
+    if (e.message !== "auth required") console.warn("refresh failed:", e.message);
   }
-  c.innerHTML = renderGroups(DATA?.groups || [], CURRENT_TAB);
 }
 
 // ── Bundle slider with live preview ────────────────────────────────────
@@ -1250,55 +1328,40 @@ async function updatePreview(budget) {
       <div class="detail-item"><div class="l">diff vs current</div><div class="v" style="font-size:11px">${diffAdded || ""}${diffAdded&&diffRemoved?" · ":""}${diffRemoved || (diffAdded?"":"no change")}</div></div>
       <div class="detail-item"><div class="l">families</div><div class="v">${p.by_family.length}</div></div>
     </div>
-    <div style="max-height:280px;overflow:auto;border:1px solid var(--line);padding:6px 10px;background:rgba(0,0,0,0.3)">
-      <table style="width:100%;font-size:11px;border-collapse:collapse">
-        <thead><tr style="text-align:left;color:var(--muted);border-bottom:1px solid var(--line)">
-          <th style="padding:3px 0">family</th><th>#</th><th style="text-align:right;padding-right:4px">size</th>
-        </tr></thead>
-        <tbody>
-          ${p.by_family.map(f => `
-            <tr style="border-bottom:1px dashed var(--line-soft)">
-              <td style="padding:2px 0">${escHTML(f.family)}</td>
-              <td>${f.count}</td>
-              <td style="text-align:right">${f.size_gb} GB</td>
-            </tr>`).join("")}
-        </tbody>
-      </table>
-    </div>
-    <div style="margin-top:10px;display:flex;gap:6px;align-items:center">
+    <div style="margin-top:8px;display:flex;gap:6px;align-items:center">
       <button class="primary" onclick="applyBudget(${budget})">apply this budget</button>
-      <span style="font-size:11px;color:var(--muted)">— builds, downloads missing, removes obsolete (cancellable)</span>
+      <span style="font-size:11px;color:var(--muted)">— builds, downloads, removes obsolete (cancellable)</span>
     </div>`;
 }
 async function applyBudget(budget) {
-  if (!confirm(`apply budget = ${budget} GB ?\n\nrebuilds the manifest, downloads new, removes obsolete. cancellable from active runs.`)) return;
-  await runCommandById("apply_changes", { budget });
-}
-async function runCommandById(cid, params) {
+  if (!confirm(`apply budget = ${budget} GB ?`)) return;
   try {
-    const res = await apiPost("/api/command", { id: cid, params });
+    const res = await apiPost("/api/command", { id: "apply_changes", params: { budget } });
     if (res.error) throw new Error(res.error);
-    toast(`started: ${res.label || cid} (${res.id})`, "ok");
-    if (CURRENT_TAB === "commands") setTimeout(renderTab, 250);
+    toast(`started: apply_changes (${res.id})`, "ok");
+    setTimeout(rerenderCommands, 250);
   } catch (e) { toast("error: " + e.message, "err"); }
 }
-document.querySelectorAll(".pill").forEach(t => {
-  t.onclick = () => {
+
+// ── Filter pills (workflow section only) ───────────────────────────────
+document.querySelectorAll(".pill").forEach(p => {
+  p.onclick = () => {
     document.querySelectorAll(".pill").forEach(x => x.classList.remove("active"));
-    t.classList.add("active");
-    CURRENT_TAB = t.dataset.tab; renderTab();
+    p.classList.add("active");
+    WF_FILTER = p.dataset.tab;
+    rerenderWorkflows();
   };
 });
-document.addEventListener("keydown", e => {
-  if (e.key === "/" && document.activeElement.tagName !== "INPUT" && document.activeElement.tagName !== "TEXTAREA") {
-    e.preventDefault();
-    const s = prompt("filter workflows:", SEARCH);
-    if (s !== null) { SEARCH = s; renderTab(); }
-  }
-});
 
-if (!TOKEN) promptForToken();
-else { refresh(); pollEvents(); }
+// ── Boot ────────────────────────────────────────────────────────────────
+async function boot() {
+  if (!TOKEN) { promptForToken(); return; }
+  await refresh();
+  await rerenderCommands();
+  rerenderWorkflows();
+  pollEvents();
+}
+boot();
 setInterval(refresh, 4000);
 </script>
 </body>
