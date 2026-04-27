@@ -967,6 +967,37 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         if not self._check_auth():
             return self._json({"error": "auth required"}, status=401)
 
+        # Cancel a running command : POST /api/command/cancel/<run_id>
+        if self.path.startswith("/api/command/cancel/"):
+            cmd_id = self.path[len("/api/command/cancel/"):]
+            with COMMAND_LOCK:
+                info = COMMAND_PROCESSES.get(cmd_id)
+            if not info:
+                return self._json({"error": "unknown run"}, status=404)
+            if info.get("status") != "running":
+                return self._json({"ok": True, "already": info.get("status")})
+            pid = info.get("pid")
+            if not pid:
+                return self._json({"error": "no pid"}, status=500)
+            try:
+                if os.name == "nt":
+                    subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                                    capture_output=True, timeout=10)
+                else:
+                    import signal as _sig
+                    try: os.kill(pid, _sig.SIGTERM)
+                    except ProcessLookupError: pass
+                    time.sleep(0.5)
+                    try: os.kill(pid, _sig.SIGKILL)
+                    except ProcessLookupError: pass
+                with COMMAND_LOCK:
+                    if cmd_id in COMMAND_PROCESSES:
+                        COMMAND_PROCESSES[cmd_id]["status"] = "cancelled"
+                        COMMAND_PROCESSES[cmd_id]["finished_at"] = time.time()
+                return self._json({"ok": True, "id": cmd_id, "killed_pid": pid})
+            except Exception as exc:
+                return self._json({"error": str(exc)}, status=500)
+
         if self.path == "/api/command":
             body = self._read_body()
             cid = body.get("id")

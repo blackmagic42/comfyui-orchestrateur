@@ -6,220 +6,434 @@
 <title>ComfyUI Orchestrator</title>
 <style>
   :root {
-    --bg-1:#0a0a12; --bg-2:#14141d; --bg-3:#1c1c28; --bg-4:#252535;
-    --border:#2a2a3a; --border-strong:#3a3a4f;
-    --text:#e8e8f0; --text-dim:#8b8b9e; --text-muted:#5c5c70;
-    --accent:#8b6dff; --accent-2:#5b8aff;
-    --ok:#34d399; --err:#f87171; --warn:#fbbf24; --pending:#5c5c70;
-    --running:#5b8aff;
+    /* Neutral zinc/slate palette — single subdued accent for primary actions. */
+    --bg-0: #09090b;
+    --bg-1: #111114;
+    --bg-2: #16161a;
+    --bg-3: #1c1c22;
+    --border: #26262d;
+    --border-strong: #353540;
+    --text: #e5e5ea;
+    --text-dim: #9a9aa6;
+    --text-muted: #62626d;
+    --accent: #4f7cff;        /* sober blue */
+    --accent-hover: #6a91ff;
+    --ok: #22c55e;
+    --err: #ef4444;
+    --warn: #eab308;
+    --running: #4f7cff;
+    --pending: #62626d;
+    --radius: 6px;
+    --radius-lg: 8px;
   }
-  * { box-sizing:border-box; margin:0; padding:0; }
-  html,body { background:var(--bg-1); color:var(--text); font-family:'Inter',system-ui,-apple-system,sans-serif; min-height:100vh; }
-  body { padding:1rem; max-width:1400px; margin:0 auto; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg-0);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", system-ui, sans-serif;
+    font-feature-settings: "cv11", "ss01";
+    min-height: 100vh;
+    line-height: 1.45;
+  }
+  body { padding: 1.25rem 1.5rem; max-width: 1400px; margin: 0 auto; }
 
+  /* ── Header ────────────────────────────────────────────────────────── */
   header {
-    display:flex; align-items:center; gap:1rem; margin-bottom:1.5rem;
-    padding-bottom:1rem; border-bottom:1px solid var(--border);
+    display: flex; align-items: baseline; gap: 1rem;
+    padding-bottom: 1rem; margin-bottom: 1.25rem;
+    border-bottom: 1px solid var(--border);
   }
-  header h1 { letter-spacing:-.02em; font-size:1.4rem; }
-  .badge {
-    background:linear-gradient(135deg,var(--accent),var(--accent-2));
-    color:#fff; padding:.2rem .6rem; border-radius:6px; font-size:.7rem;
-    text-transform:uppercase; letter-spacing:.05em; font-weight:600;
+  header h1 {
+    font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em;
   }
-  .auth-status { margin-left:auto; font-size:.8rem; color:var(--text-dim); }
-  .auth-status.connected::before { content:"●"; color:var(--ok); margin-right:.4rem; }
-  .auth-status.disconnected::before { content:"●"; color:var(--err); margin-right:.4rem; }
+  header .version {
+    font-size: 0.7rem; color: var(--text-muted);
+    font-family: ui-monospace, "SF Mono", monospace;
+  }
+  header .status {
+    margin-left: auto; font-size: 0.78rem; color: var(--text-dim);
+    display: flex; align-items: center; gap: 0.4rem;
+  }
+  header .status::before {
+    content: ""; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--text-muted);
+  }
+  header .status.connected::before { background: var(--ok); }
+  header .status.disconnected::before { background: var(--err); }
 
+  /* ── Setup banner (first-run hint) ──────────────────────────────────── */
+  .banner {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 0.85rem 1rem;
+    margin-bottom: 1.25rem;
+    display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;
+  }
+  .banner h3 {
+    font-size: 0.85rem; font-weight: 600; margin-bottom: 0.15rem;
+  }
+  .banner .hints {
+    font-size: 0.78rem; color: var(--text-dim); line-height: 1.5;
+  }
+  .banner .hints ul { margin: 0.2rem 0 0 1.1rem; padding: 0; }
+
+  /* ── Stats ─────────────────────────────────────────────────────────── */
   .stats {
-    display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr));
-    gap:.6rem; margin-bottom:1.5rem;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
+    gap: 0.5rem; margin-bottom: 1.25rem;
   }
   .stat {
-    background:var(--bg-2); border:1px solid var(--border); border-radius:8px;
-    padding:.7rem .9rem; position:relative; overflow:hidden;
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 0.6rem 0.8rem;
   }
-  .stat::before {
-    content:""; position:absolute; left:0; top:0; bottom:0; width:3px;
-    background:var(--accent);
+  .stat .v {
+    font-size: 1.4rem; font-weight: 600; line-height: 1.1;
+    letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
   }
-  .stat .v { font-size:1.6rem; font-weight:700; line-height:1.1; letter-spacing:-.02em; }
-  .stat .l { font-size:.65rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:.05em; font-weight:600; margin-top:.2rem; }
-  .stat.ok::before { background:var(--ok); } .stat.ok .v { color:var(--ok); }
-  .stat.err::before { background:var(--err); } .stat.err .v { color:var(--err); }
-  .stat.run::before { background:var(--running); } .stat.run .v { color:var(--running); }
-  .stat.warn::before { background:var(--warn); } .stat.warn .v { color:var(--warn); }
+  .stat .l {
+    font-size: 0.66rem; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.05em;
+    margin-top: 0.15rem; font-weight: 500;
+  }
+  .stat.ok .v { color: var(--ok); }
+  .stat.err .v { color: var(--err); }
+  .stat.warn .v { color: var(--warn); }
+  .stat.run .v { color: var(--running); }
 
-  .tabs { display:flex; gap:.4rem; margin-bottom:1rem; flex-wrap:wrap; }
+  /* ── Tabs ──────────────────────────────────────────────────────────── */
+  .tabs {
+    display: flex; gap: 0; margin-bottom: 1rem; flex-wrap: wrap;
+    border-bottom: 1px solid var(--border);
+  }
   .tab {
-    background:var(--bg-2); border:1px solid var(--border); color:var(--text-dim);
-    padding:.45rem 1rem; border-radius:6px; cursor:pointer;
-    font-family:inherit; font-size:.85rem; transition:all .15s;
+    background: transparent; border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-dim);
+    padding: 0.55rem 0.9rem;
+    cursor: pointer;
+    font-family: inherit; font-size: 0.82rem;
+    transition: color 0.12s, border-color 0.12s;
+    margin-bottom: -1px;
   }
-  .tab:hover { color:var(--text); border-color:var(--border-strong); }
-  .tab.active {
-    background:linear-gradient(135deg,rgba(139,109,255,.2),rgba(91,138,255,.12));
-    color:var(--text); border-color:var(--accent);
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+  /* ── Panel ─────────────────────────────────────────────────────────── */
+  .panel { background: transparent; padding: 0; }
+  .panel h2 {
+    font-size: 0.9rem; font-weight: 600; margin-bottom: 0.8rem;
+    display: flex; align-items: baseline; gap: 0.5rem;
+  }
+  .panel h2 .count {
+    color: var(--text-muted); font-weight: 400;
+    font-size: 0.78rem;
   }
 
-  .panel { background:var(--bg-2); border:1px solid var(--border); border-radius:10px; padding:1rem; }
-  .panel h2 { font-size:.95rem; font-weight:600; margin-bottom:.8rem; display:flex; align-items:center; gap:.4rem; }
-  .panel h2 .count { color:var(--text-dim); font-weight:400; font-size:.85rem; }
-
-  .controls { display:flex; gap:.5rem; align-items:center; margin-bottom:.8rem; flex-wrap:wrap; }
-  input,select,textarea {
-    background:var(--bg-1); border:1px solid var(--border); color:var(--text);
-    padding:.45rem .8rem; border-radius:6px; font-family:inherit; font-size:.85rem;
+  /* ── Forms / inputs / buttons ──────────────────────────────────────── */
+  input, select, textarea {
+    background: var(--bg-1); border: 1px solid var(--border);
+    color: var(--text); padding: 0.42rem 0.7rem;
+    border-radius: var(--radius); font-family: inherit; font-size: 0.82rem;
+    transition: border-color 0.12s;
   }
-  input:focus,select:focus,textarea:focus { border-color:var(--accent); outline:none; box-shadow:0 0 0 2px rgba(139,109,255,.18); }
+  input:focus, select:focus, textarea:focus {
+    border-color: var(--accent); outline: none;
+  }
   button {
-    background:linear-gradient(135deg,var(--accent),var(--accent-2)); border:none; color:#fff;
-    padding:.45rem .9rem; border-radius:6px; cursor:pointer; font-family:inherit; font-size:.85rem; font-weight:500;
-    transition:transform .15s;
+    background: var(--accent); border: 1px solid var(--accent); color: #fff;
+    padding: 0.42rem 0.85rem; border-radius: var(--radius);
+    cursor: pointer; font-family: inherit; font-size: 0.82rem;
+    font-weight: 500;
+    transition: background-color 0.12s, border-color 0.12s;
   }
-  button.ghost { background:transparent; border:1px solid var(--border); color:var(--text-dim); }
-  button.ghost:hover { color:var(--text); border-color:var(--border-strong); }
-  button:hover:not(:disabled) { transform:translateY(-1px); }
-  button:disabled { opacity:.5; cursor:not-allowed; }
+  button:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.ghost {
+    background: transparent; border-color: var(--border-strong);
+    color: var(--text);
+  }
+  button.ghost:hover:not(:disabled) {
+    background: var(--bg-2); border-color: var(--text-muted);
+  }
+  button.danger {
+    background: transparent; border-color: var(--err); color: var(--err);
+  }
+  button.danger:hover:not(:disabled) {
+    background: var(--err); color: #fff;
+  }
+  button.sm { padding: 0.25rem 0.55rem; font-size: 0.75rem; }
 
-  .grp { background:var(--bg-2); border:1px solid var(--border); border-radius:10px; margin-bottom:.6rem; overflow:hidden; }
-  .grp-head {
-    padding:.7rem .95rem; cursor:pointer; user-select:none;
-    background:linear-gradient(180deg,rgba(139,109,255,.06),transparent);
-    display:flex; align-items:center; gap:.6rem;
+  /* ── Group / cards (workflow grid) ─────────────────────────────────── */
+  .grp {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); margin-bottom: 0.5rem; overflow: hidden;
   }
-  .grp-head:hover { background:linear-gradient(180deg,rgba(139,109,255,.10),transparent); }
-  .grp-name { font-weight:600; flex:1; font-size:.92rem; }
-  .grp-stats { font-size:.72rem; color:var(--text-dim); }
-  .grp-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:.5rem; padding:.5rem .7rem .8rem; }
-  .grp.collapsed .grp-grid { display:none; }
+  .grp-head {
+    padding: 0.55rem 0.85rem; cursor: pointer; user-select: none;
+    display: flex; align-items: center; gap: 0.6rem;
+    border-bottom: 1px solid transparent;
+  }
+  .grp-head:hover { background: var(--bg-2); }
+  .grp.collapsed .grp-head { border-bottom-color: transparent; }
+  .grp-name { font-weight: 500; flex: 1; font-size: 0.85rem; }
+  .grp-stats {
+    font-size: 0.7rem; color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .grp-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.4rem; padding: 0.4rem 0.6rem 0.55rem;
+    border-top: 1px solid var(--border);
+  }
+  .grp.collapsed .grp-grid { display: none; }
 
   .card {
-    padding:.55rem .65rem; background:var(--bg-1); border:1px solid var(--border);
-    border-radius:7px; position:relative; cursor:pointer; transition:all .15s;
+    padding: 0.5rem 0.6rem; background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    position: relative; cursor: pointer;
+    transition: border-color 0.12s, background-color 0.12s;
   }
-  .card:hover { border-color:var(--accent); transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,.4); }
-  .card.ok::before, .card.error::before, .card.timeout::before, .card.pending::before, .card.running::before {
-    content:""; position:absolute; left:0; top:.4rem; bottom:.4rem; width:3px; border-radius:0 2px 2px 0;
+  .card:hover { border-color: var(--text-muted); background: var(--bg-3); }
+  .card::before {
+    content: ""; position: absolute; left: 0; top: 0.4rem; bottom: 0.4rem;
+    width: 2px; border-radius: 0 1px 1px 0; background: var(--pending);
   }
-  .card.ok::before { background:var(--ok); }
-  .card.error::before { background:var(--err); }
-  .card.timeout::before { background:var(--warn); }
-  .card.pending::before { background:var(--pending); }
-  .card.running::before { background:var(--running); animation:pulse 1.5s ease-in-out infinite; }
-  @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.4 } }
+  .card.ok::before { background: var(--ok); }
+  .card.error::before { background: var(--err); }
+  .card.timeout::before { background: var(--warn); }
+  .card.running::before { background: var(--running); animation: pulse 1.5s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
 
-  .card-name { font-size:.78rem; font-weight:500; word-break:break-word; }
-  .card-meta { font-size:.65rem; color:var(--text-dim); margin-top:.25rem; display:flex; gap:.3rem; flex-wrap:wrap; }
-  .tag { background:rgba(139,109,255,.12); color:var(--accent); padding:.05rem .35rem; border-radius:3px; font-family:'SF Mono',monospace; }
-  .tag.run { background:rgba(91,138,255,.18); color:var(--accent-2); }
-  .tag.ok { background:rgba(52,211,153,.12); color:var(--ok); }
-  .err-msg { font-size:.65rem; color:var(--err); margin-top:.25rem; max-height:2.4em; overflow:hidden; line-height:1.2; }
+  .card-name {
+    font-size: 0.78rem; font-weight: 500;
+    word-break: break-word; padding-left: 0.5rem;
+  }
+  .card-meta {
+    font-size: 0.66rem; color: var(--text-muted);
+    margin-top: 0.2rem; padding-left: 0.5rem;
+    display: flex; gap: 0.3rem; flex-wrap: wrap;
+  }
+  .tag {
+    background: var(--bg-1); border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 0.05rem 0.35rem; border-radius: 3px;
+    font-family: ui-monospace, "SF Mono", monospace;
+    font-size: 0.65rem;
+  }
+  .tag.ok { color: var(--ok); border-color: rgba(34,197,94,0.3); }
+  .tag.run { color: var(--running); border-color: rgba(79,124,255,0.3); }
+  .err-msg {
+    font-size: 0.66rem; color: var(--err); margin-top: 0.25rem;
+    padding-left: 0.5rem; max-height: 2.4em; overflow: hidden; line-height: 1.2;
+  }
 
-  /* Modal */
+  /* ── Modal ─────────────────────────────────────────────────────────── */
   .modal-overlay {
-    position:fixed; inset:0; background:rgba(0,0,0,.85); backdrop-filter:blur(6px);
-    display:flex; align-items:center; justify-content:center; z-index:100;
-    padding:1rem;
+    position: fixed; inset: 0;
+    background: rgba(9, 9, 11, 0.78); backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100; padding: 1rem;
   }
-  .modal-overlay.hidden { display:none; }
+  .modal-overlay.hidden { display: none; }
   .modal {
-    background:var(--bg-2); border:1px solid var(--border-strong); border-radius:12px;
-    width:100%; max-width:980px; max-height:90vh; overflow:hidden;
-    display:flex; flex-direction:column;
-    box-shadow:0 20px 60px rgba(0,0,0,.7);
+    background: var(--bg-1); border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    width: 100%; max-width: 980px; max-height: 90vh;
+    overflow: hidden; display: flex; flex-direction: column;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.6);
   }
   .modal-head {
-    padding:1rem 1.2rem; border-bottom:1px solid var(--border);
-    display:flex; align-items:center; gap:.8rem;
-    background:linear-gradient(180deg,rgba(139,109,255,.08),transparent);
+    padding: 0.85rem 1.1rem; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 0.8rem;
   }
-  .modal-head h2 { flex:1; font-size:1rem; }
-  .modal-body { flex:1; overflow-y:auto; padding:1rem 1.2rem; }
-  .modal-body::-webkit-scrollbar { width:8px; }
-  .modal-body::-webkit-scrollbar-thumb { background:var(--border-strong); border-radius:4px; }
+  .modal-head h2 { flex: 1; font-size: 0.95rem; font-weight: 600; }
+  .modal-body { flex: 1; overflow-y: auto; padding: 0.9rem 1.1rem; }
+  .modal-body::-webkit-scrollbar { width: 8px; }
+  .modal-body::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
 
-  .detail-section { margin-bottom:1.2rem; }
+  .detail-section { margin-bottom: 1.1rem; }
   .detail-section h3 {
-    font-size:.78rem; color:var(--text-dim); text-transform:uppercase;
-    letter-spacing:.06em; margin-bottom:.5rem; font-weight:600;
+    font-size: 0.7rem; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.05em;
+    margin-bottom: 0.45rem; font-weight: 600;
   }
-  .detail-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:.5rem; }
-  .detail-item { background:var(--bg-1); border:1px solid var(--border); border-radius:6px; padding:.5rem .7rem; }
-  .detail-item .l { font-size:.65rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:.05em; }
-  .detail-item .v { font-size:.85rem; font-weight:500; margin-top:.15rem; word-break:break-word; }
+  .detail-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 0.45rem;
+  }
+  .detail-item {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 0.45rem 0.65rem;
+  }
+  .detail-item .l {
+    font-size: 0.62rem; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .detail-item .v {
+    font-size: 0.82rem; font-weight: 500; margin-top: 0.15rem;
+    word-break: break-word;
+  }
 
   pre {
-    background:var(--bg-1); border:1px solid var(--border); border-radius:6px;
-    padding:.7rem .9rem; font-family:'SF Mono','JetBrains Mono',monospace;
-    font-size:.72rem; line-height:1.5; max-height:400px; overflow:auto;
-    color:var(--text); white-space:pre-wrap; word-break:break-all;
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.65rem 0.85rem;
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", monospace;
+    font-size: 0.72rem; line-height: 1.5;
+    max-height: 400px; overflow: auto;
+    color: var(--text); white-space: pre-wrap; word-break: break-all;
   }
-  pre.compact { max-height:180px; }
+  pre.compact { max-height: 180px; }
 
   .widget-row {
-    display:grid; grid-template-columns:auto 1fr; gap:.5rem;
-    padding:.45rem .65rem; background:var(--bg-1); border:1px solid var(--border);
-    border-radius:6px; margin-bottom:.3rem; font-size:.78rem;
+    display: grid; grid-template-columns: auto 1fr; gap: 0.5rem;
+    padding: 0.4rem 0.6rem; background: var(--bg-2);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    margin-bottom: 0.3rem; font-size: 0.78rem;
   }
-  .widget-row .k { font-family:monospace; color:var(--accent); white-space:nowrap; }
-  .widget-row .v { color:var(--text); word-break:break-all; }
+  .widget-row .k {
+    font-family: ui-monospace, "SF Mono", monospace;
+    color: var(--accent); white-space: nowrap;
+  }
+  .widget-row .v { color: var(--text); word-break: break-all; }
 
-  .submit-form { display:grid; grid-template-columns:1fr 2fr auto; gap:.5rem; margin-bottom:.8rem; }
-  .submit-form select, .submit-form input { width:100%; }
+  /* ── Submit form ───────────────────────────────────────────────────── */
+  .submit-form {
+    display: grid; grid-template-columns: 1fr 2fr auto; gap: 0.5rem;
+    margin-bottom: 0.7rem;
+  }
+  .submit-form select, .submit-form input { width: 100%; }
 
-  /* Commands panel */
-  .cmd-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:.6rem; }
+  /* ── Commands panel ────────────────────────────────────────────────── */
+  .section-head {
+    margin: 1.25rem 0 0.5rem;
+    font-size: 0.72rem; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    font-weight: 600;
+  }
+  .section-head:first-child { margin-top: 0; }
+
+  .cmd-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 0.5rem;
+  }
   .cmd-card {
-    background:var(--bg-1); border:1px solid var(--border); border-radius:8px;
-    padding:.85rem 1rem; transition:all .15s;
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 0.8rem 0.95rem;
+    transition: border-color 0.12s;
   }
-  .cmd-card:hover { border-color:var(--accent); }
-  .cmd-card h3 { font-size:.95rem; margin-bottom:.3rem; }
-  .cmd-card .desc { font-size:.78rem; color:var(--text-dim); margin-bottom:.6rem; line-height:1.4; }
-  .cmd-params { display:grid; gap:.3rem; margin-bottom:.5rem; }
-  .cmd-params label { display:flex; flex-direction:column; gap:.15rem; font-size:.7rem; color:var(--text-dim); }
-  .cmd-params input { padding:.3rem .5rem; font-size:.8rem; }
-  .cmd-card-foot { display:flex; align-items:center; justify-content:space-between; }
-  .cmd-status { font-size:.7rem; color:var(--text-dim); }
-  .cmd-status.running { color:var(--running); }
-  .cmd-status.ok { color:var(--ok); }
-  .cmd-status.error { color:var(--err); }
+  .cmd-card:hover { border-color: var(--border-strong); }
+  .cmd-card h3 {
+    font-size: 0.88rem; font-weight: 600; margin-bottom: 0.25rem;
+  }
+  .cmd-card .desc {
+    font-size: 0.75rem; color: var(--text-dim); margin-bottom: 0.55rem;
+    line-height: 1.4;
+  }
+  .cmd-params { display: grid; gap: 0.35rem; margin-bottom: 0.55rem; }
+  .cmd-params label {
+    display: flex; flex-direction: column; gap: 0.15rem;
+    font-size: 0.68rem; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .cmd-params input { padding: 0.3rem 0.55rem; font-size: 0.8rem; }
+  .cmd-card-foot {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .cmd-status {
+    font-size: 0.72rem; color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .cmd-status.running { color: var(--running); }
+  .cmd-status.ok { color: var(--ok); }
+  .cmd-status.error, .cmd-status.cancelled { color: var(--err); }
 
-  .empty { padding:2rem 1rem; text-align:center; color:var(--text-dim); }
+  /* Bundle panel */
+  .bundle-panel {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 0.95rem;
+  }
+  .bundle-presets {
+    display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.85rem;
+  }
+  .bundle-presets button {
+    flex: 1; min-width: 95px;
+  }
+  .slider-row {
+    display: flex; align-items: center; gap: 0.7rem;
+    margin-bottom: 0.85rem;
+  }
+  .slider-row label {
+    color: var(--text-muted); font-size: 0.78rem;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    font-weight: 500;
+  }
+  #budgetSlider { flex: 1; accent-color: var(--accent); }
+  #budgetVal {
+    font-family: ui-monospace, "SF Mono", monospace;
+    color: var(--text); font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    min-width: 80px; text-align: right;
+  }
 
-  /* Toasts */
-  .toasts { position:fixed; top:1rem; right:1rem; z-index:200; display:flex; flex-direction:column; gap:.4rem; }
+  /* Active runs list */
+  .run-row {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 0.5rem 0.7rem;
+    margin-bottom: 0.35rem;
+    display: flex; align-items: center; gap: 0.6rem;
+  }
+  .run-row .run-id {
+    font-family: ui-monospace, "SF Mono", monospace;
+    font-size: 0.74rem; color: var(--text-dim);
+    flex: 1; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  .empty {
+    padding: 2rem 1rem; text-align: center; color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+
+  /* ── Toasts ────────────────────────────────────────────────────────── */
+  .toasts {
+    position: fixed; bottom: 1rem; right: 1rem; z-index: 200;
+    display: flex; flex-direction: column; gap: 0.4rem;
+  }
   .toast {
-    background:var(--bg-3); border:1px solid var(--border-strong); border-left:3px solid var(--accent);
-    padding:.6rem .9rem; border-radius:6px; min-width:280px; max-width:380px;
-    font-size:.85rem; animation:slidein .25s; box-shadow:0 8px 24px rgba(0,0,0,.5);
+    background: var(--bg-2); border: 1px solid var(--border-strong);
+    border-left: 2px solid var(--accent);
+    padding: 0.55rem 0.85rem; border-radius: var(--radius);
+    min-width: 280px; max-width: 380px;
+    font-size: 0.82rem; line-height: 1.4;
+    animation: slidein 0.2s ease-out;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.45);
   }
-  .toast.ok { border-left-color:var(--ok); }
-  .toast.err { border-left-color:var(--err); }
-  @keyframes slidein { from{transform:translateX(20px);opacity:0} to{transform:translateX(0);opacity:1} }
+  .toast.ok { border-left-color: var(--ok); }
+  .toast.err { border-left-color: var(--err); }
+  @keyframes slidein {
+    from { transform: translateY(8px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>🎛️ ComfyUI Orchestrator</h1>
-  <div class="badge">v2.1</div>
-  <div class="auth-status" id="authStatus">connecting...</div>
+  <h1>ComfyUI Orchestrator</h1>
+  <span class="version">v2.2</span>
+  <div class="status" id="authStatus">connecting</div>
 </header>
 
-<!-- Setup banner — shown only when first-time setup is needed -->
-<div id="setupBanner" style="display:none; background:linear-gradient(135deg,rgba(139,109,255,.18),rgba(91,138,255,.10));
-     border:1px solid rgba(139,109,255,.35); border-radius:10px; padding:1rem 1.2rem; margin-bottom:1.2rem;
-     display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
-  <div style="font-size:2rem">⚙</div>
+<div class="banner" id="setupBanner" style="display:none">
   <div style="flex:1; min-width:240px">
-    <h3 style="margin-bottom:.3rem">Première installation détectée</h3>
-    <div id="setupHints" style="font-size:.85rem; color:var(--text-dim); line-height:1.5"></div>
+    <h3>First-run setup</h3>
+    <div id="setupHints" class="hints"></div>
   </div>
-  <div style="display:flex; gap:.5rem; flex-wrap:wrap">
-    <button onclick="quickCommand('bootstrap_install')" id="btnBootstrap">⚙ Install ComfyUI</button>
-    <button onclick="goToCommands()" class="ghost">⚙ Voir toutes les commandes</button>
+  <div style="display:flex; gap:0.4rem; flex-wrap:wrap">
+    <button onclick="quickCommand('bootstrap_install')" id="btnBootstrap">Install ComfyUI</button>
+    <button onclick="goToCommands()" class="ghost">View all commands</button>
   </div>
 </div>
 
@@ -231,20 +445,19 @@
   <button class="tab" data-tab="ok">Success</button>
   <button class="tab" data-tab="error">Errors</button>
   <button class="tab" data-tab="pending">Untested</button>
-  <button class="tab" data-tab="submit">Submit Job</button>
-  <button class="tab" data-tab="commands">⚙ Commands</button>
+  <button class="tab" data-tab="submit">Submit job</button>
+  <button class="tab" data-tab="commands">Commands</button>
 </div>
 
 <div class="panel" id="content">
   <div class="empty">Loading…</div>
 </div>
 
-<!-- Workflow detail modal -->
 <div class="modal-overlay hidden" id="modalOverlay">
   <div class="modal">
     <div class="modal-head">
       <h2 id="modalTitle">Workflow</h2>
-      <button class="ghost" onclick="closeModal()">✕</button>
+      <button class="ghost sm" onclick="closeModal()">Close</button>
     </div>
     <div class="modal-body" id="modalBody">Loading…</div>
   </div>
@@ -254,13 +467,8 @@
 
 <script>
 const API = window.location.origin;
-// Token resolution order:
-//   1. window.ORCHESTRATOR_TOKEN — injected by orchestrator.py at serve time (preferred)
-//   2. localStorage — manual paste fallback for cases where the dashboard is
-//      served by something other than the orchestrator (rare)
 let TOKEN = window.ORCHESTRATOR_TOKEN || localStorage.getItem("orchestrator_token") || "";
 if (window.ORCHESTRATOR_TOKEN) {
-  // Persist it so a refresh without injection (cached HTML) still works
   try { localStorage.setItem("orchestrator_token", window.ORCHESTRATOR_TOKEN); } catch {}
 }
 let DATA = null;
@@ -274,7 +482,7 @@ async function apiGet(path) {
   const r = await fetch(API + path, { headers: authHeaders() });
   if (r.status === 401) {
     document.getElementById("authStatus").textContent = "auth required";
-    document.getElementById("authStatus").className = "auth-status disconnected";
+    document.getElementById("authStatus").className = "status disconnected";
     promptForToken(); throw new Error("auth required");
   }
   return await r.json();
@@ -283,39 +491,47 @@ async function apiPost(path, body) {
   const r = await fetch(API + path, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(body),
+    body: body ? JSON.stringify(body) : undefined,
   });
   return await r.json();
 }
 function promptForToken() {
-  const t = prompt("Bearer token (collez celui affiché par orchestrator.py serve):");
+  const t = prompt("Bearer token:");
   if (t) { TOKEN = t; localStorage.setItem("orchestrator_token", t); refresh(); }
 }
 function toast(msg, kind = "info") {
   const t = document.createElement("div");
   t.className = "toast " + kind; t.textContent = msg;
   document.getElementById("toasts").appendChild(t);
-  setTimeout(() => { t.style.opacity="0"; t.style.transition="all .3s"; setTimeout(() => t.remove(), 300); }, 4500);
+  setTimeout(() => { t.style.opacity = "0"; t.style.transition = "all .25s"; setTimeout(() => t.remove(), 250); }, 4000);
 }
-function escHTML(s) { return String(s||"").replace(/[&<>"']/g, c => ({
-  "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;",
-})[c]); }
+function escHTML(s) {
+  return String(s||"").replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;",
+  })[c]);
+}
 
 // ── Stats / instances ──────────────────────────────────────────────────
 function renderStats(s) {
   document.getElementById("stats").innerHTML = `
     <div class="stat"><div class="v">${s.total}</div><div class="l">Total</div></div>
-    <div class="stat ok"><div class="v">${s.ok}</div><div class="l">✅ Success</div></div>
-    <div class="stat err"><div class="v">${s.error}</div><div class="l">✗ Errors</div></div>
-    <div class="stat warn"><div class="v">${s.timeout}</div><div class="l">⏱ Timeout</div></div>
-    <div class="stat run"><div class="v">${s.running||0}</div><div class="l">▶ Running</div></div>
-    <div class="stat"><div class="v">${s.pending}</div><div class="l">○ Untested</div></div>
+    <div class="stat ok"><div class="v">${s.ok}</div><div class="l">Success</div></div>
+    <div class="stat err"><div class="v">${s.error}</div><div class="l">Errors</div></div>
+    <div class="stat warn"><div class="v">${s.timeout}</div><div class="l">Timeout</div></div>
+    <div class="stat run"><div class="v">${s.running||0}</div><div class="l">Running</div></div>
+    <div class="stat"><div class="v">${s.pending}</div><div class="l">Untested</div></div>
   `;
 }
 function renderInstances(insts) {
   const status = document.getElementById("authStatus");
-  if (!insts || !insts.length) { status.textContent = "no live instance"; status.className = "auth-status disconnected"; }
-  else { status.textContent = `${insts.length} instance(s) · load=${insts.reduce((a,i)=>a+i.load,0)}`; status.className = "auth-status connected"; }
+  if (!insts || !insts.length) {
+    status.textContent = "no instance";
+    status.className = "status disconnected";
+  } else {
+    const load = insts.reduce((a, i) => a + i.load, 0);
+    status.textContent = `${insts.length} instance${insts.length>1?"s":""} · load ${load}`;
+    status.className = "status connected";
+  }
 }
 
 // ── Workflow grid ───────────────────────────────────────────────────────
@@ -335,8 +551,8 @@ function renderGroups(groups, filter = "all") {
   return visible.map(g => `
     <div class="grp" data-grp="${escHTML(g.name)}">
       <div class="grp-head" onclick="this.parentElement.classList.toggle('collapsed')">
-        <div class="grp-name">📂 ${escHTML(g.name)}</div>
-        <div class="grp-stats">${g.ok}/${g.workflows.length} ok · ${g.error} err · ${g.pending} ○</div>
+        <div class="grp-name">${escHTML(g.name)}</div>
+        <div class="grp-stats">${g.ok}/${g.workflows.length} ok · ${g.error} err · ${g.pending} untested</div>
       </div>
       <div class="grp-grid">
         ${g._visible.map(w => `
@@ -346,8 +562,8 @@ function renderGroups(groups, filter = "all") {
               <span class="tag">ph${w.phase || "?"}</span>
               ${w.duration ? `<span class="tag">${w.duration}s</span>` : ""}
               ${w.instance ? `<span class="tag">${escHTML((w.instance||"").replace("http://","").slice(0,18))}</span>` : ""}
-              ${w.status === "running" ? '<span class="tag run">▶ running</span>' : ""}
-              ${w.status === "ok" ? '<span class="tag ok">✓</span>' : ""}
+              ${w.status === "running" ? '<span class="tag run">running</span>' : ""}
+              ${w.status === "ok" ? '<span class="tag ok">ok</span>' : ""}
             </div>
             ${w.error ? `<div class="err-msg" title="${escHTML(w.error)}">${escHTML(w.error.slice(0, 100))}</div>` : ""}
           </div>
@@ -360,8 +576,8 @@ function renderGroups(groups, filter = "all") {
 function renderSubmit() {
   if (!DATA) return "Loading…";
   return `
-    <h2>📤 Submit a job</h2>
-    <p style="color:var(--text-dim);font-size:.85rem;margin-bottom:1rem">
+    <h2>Submit a job</h2>
+    <p style="color:var(--text-dim);font-size:.8rem;margin-bottom:.85rem">
       Pick a workflow to run on an available instance.
     </p>
     <div class="submit-form">
@@ -371,10 +587,10 @@ function renderSubmit() {
           `<option value="${escHTML(c)}">${escHTML(c)}</option>`).join("")}
       </select>
       <select id="wfSelect"></select>
-      <button onclick="submitJob()" id="submitBtn">▶ Run</button>
+      <button onclick="submitJob()" id="submitBtn">Run</button>
     </div>
     <textarea id="promptInput" rows="3" placeholder="Override prompt (optional)…"
-      style="width:100%;resize:vertical;margin-top:.6rem"></textarea>
+      style="width:100%;resize:vertical;margin-top:.5rem"></textarea>
   `;
 }
 function updateWfList() {
@@ -394,17 +610,40 @@ async function submitJob() {
   try {
     const res = await apiPost("/api/job", { template_id: tid, prompt });
     if (res.error) throw new Error(res.error);
-    toast(`📤 Job submitted: ${tid} → ${res.instance}`, "ok");
+    toast(`Submitted: ${tid} → ${res.instance}`, "ok");
     setTimeout(refresh, 500);
   } catch (e) { toast("Error: " + e.message, "err"); }
   finally { document.getElementById("submitBtn").disabled = false; }
 }
 
 // ── Commands panel ──────────────────────────────────────────────────────
+const CMD_LABELS = {
+  bootstrap_install: "Install ComfyUI",
+  apply_changes:     "Apply changes",
+  launch_comfyui:    "Launch instance",
+  catalog_build:     "Build catalog",
+  catalog_sync:      "Sync templates",
+  catalog_download:  "Download models",
+  catalog_status:    "Catalog status",
+  catalog_cleanup:   "Cleanup obsolete",
+  classify:          "Classify workflows",
+  export_api:        "Export API workflows",
+  starters:          "Generate starters",
+  gated_check:       "Check gated models",
+  install_workflows: "Install workflow files",
+  bundle_minimal:    "Minimal preset",
+  bundle_image:      "Image preset",
+  bundle_standard:   "Standard preset",
+  bundle_full:       "Full preset",
+};
+function cleanLabel(cid, fallback) {
+  return CMD_LABELS[cid] || (fallback || cid).replace(/^[^a-zA-Z0-9]+/, "").trim();
+}
+
 function renderCmdCard(cid, c) {
   return `
     <div class="cmd-card" data-cid="${cid}">
-      <h3>${escHTML(c.label)}</h3>
+      <h3>${escHTML(cleanLabel(cid, c.label))}</h3>
       <div class="desc">${escHTML(c.description||'')}</div>
       ${c.params && c.params.length ? `
         <div class="cmd-params">
@@ -416,7 +655,7 @@ function renderCmdCard(cid, c) {
         </div>` : ""}
       <div class="cmd-card-foot">
         <span class="cmd-status" data-status></span>
-        <button onclick="runCommand('${cid}', this)">Run</button>
+        <button onclick="runCommand('${cid}', this)" class="sm">Run</button>
       </div>
     </div>`;
 }
@@ -426,88 +665,83 @@ async function renderCommands() {
   const cmds = COMMANDS_DATA.available;
   const running = COMMANDS_DATA.running;
 
-  // Group commands in logical sections
   const SECTIONS = [
-    { name: "🚀 Setup (one-shot)", ids: ["bootstrap_install", "apply_changes", "launch_comfyui"] },
-    { name: "🔧 Catalog management", ids: ["catalog_build", "catalog_sync", "catalog_download", "catalog_status", "catalog_cleanup"] },
-    { name: "🛠 Tools", ids: ["classify", "export_api", "starters", "gated_check", "install_workflows"] },
+    { name: "Setup",   ids: ["bootstrap_install", "apply_changes", "launch_comfyui"] },
+    { name: "Catalog", ids: ["catalog_build", "catalog_sync", "catalog_download", "catalog_status", "catalog_cleanup"] },
+    { name: "Tools",   ids: ["classify", "export_api", "starters", "gated_check", "install_workflows"] },
   ];
-
   const used = new Set();
 
-  // Bundle presets — replaced by an interactive slider with live /api/preview
   const bundleIds = ["bundle_minimal", "bundle_image", "bundle_standard", "bundle_full"];
   bundleIds.forEach(id => { if (cmds[id]) used.add(id); });
 
   const BUNDLE_PRESETS = [
-    { name: "Minimal",  budget: 250,  desc: "text→image essentials" },
+    { name: "Minimal",  budget: 250,  desc: "text-to-image essentials" },
     { name: "Image",    budget: 400,  desc: "Flux + Qwen-Edit + ControlNet" },
     { name: "Standard", budget: 700,  desc: "image + video latest" },
-    { name: "Full",     budget: 1500, desc: "everything, no cap" },
+    { name: "Full",     budget: 1500, desc: "everything" },
   ];
+
   const bundlesHtml = `
-    <h3 style="margin-top:1.2rem; margin-bottom:.5rem; font-size:.85rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:.06em">
-      📦 Bundles & budget tuner
-    </h3>
-    <div style="background:var(--bg-2);border:1px solid var(--border);border-radius:10px;padding:1rem">
-      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem">
+    <div class="section-head">Model budget</div>
+    <div class="bundle-panel">
+      <div class="bundle-presets">
         ${BUNDLE_PRESETS.map(b => `
-          <button class="ghost" style="padding:.5rem .8rem"
-            onclick="document.getElementById('budgetSlider').value=${b.budget};document.getElementById('budgetSlider').dispatchEvent(new Event('input'))">
-            <b>${b.name}</b> · ${b.budget} GB
+          <button class="ghost"
+            onclick="document.getElementById('budgetSlider').value=${b.budget};document.getElementById('budgetSlider').dispatchEvent(new Event('input'))"
+            title="${escHTML(b.desc)}">
+            ${b.name} · ${b.budget} GB
           </button>
         `).join("")}
       </div>
-      <div style="display:flex;align-items:center;gap:.8rem;margin-bottom:1rem">
-        <label style="color:var(--text-dim);font-size:.85rem">Budget</label>
-        <input id="budgetSlider" type="range" min="100" max="2000" step="50" value="700"
-               style="flex:1;accent-color:var(--accent)">
-        <span id="budgetVal" style="font-family:monospace;color:var(--accent);font-weight:600;min-width:80px;text-align:right">700 GB</span>
+      <div class="slider-row">
+        <label>Budget</label>
+        <input id="budgetSlider" type="range" min="100" max="2000" step="50" value="700">
+        <span id="budgetVal">700 GB</span>
       </div>
-      <div id="previewPanel"><div class="empty" style="padding:1rem">Move slider to preview…</div></div>
+      <div id="previewPanel"><div class="empty" style="padding:.85rem">Move slider to preview…</div></div>
     </div>`;
 
   const sectionsHtml = SECTIONS.map(sec => {
     const items = sec.ids.filter(id => cmds[id]).map(id => { used.add(id); return [id, cmds[id]]; });
     if (!items.length) return "";
     return `
-      <h3 style="margin-top:1.2rem; margin-bottom:.5rem; font-size:.85rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:.06em">
-        ${escHTML(sec.name)}
-      </h3>
+      <div class="section-head">${escHTML(sec.name)}</div>
       <div class="cmd-grid">
         ${items.map(([cid, c]) => renderCmdCard(cid, c)).join("")}
       </div>`;
   }).join("");
 
-  // Catch-all for any unbucketed commands
   const leftover = Object.entries(cmds).filter(([cid]) => !used.has(cid));
   const leftoverHtml = leftover.length ? `
-    <h3 style="margin-top:1.2rem; margin-bottom:.5rem; font-size:.85rem; color:var(--text-dim)">Other</h3>
+    <div class="section-head">Other</div>
     <div class="cmd-grid">
       ${leftover.map(([cid, c]) => renderCmdCard(cid, c)).join("")}
     </div>` : "";
 
+  const runsHtml = `
+    <div class="section-head">Active &amp; recent runs</div>
+    <div id="cmdActiveList">
+      ${Object.entries(running||{}).map(([rid, info]) => {
+        const isRunning = info.status === "running";
+        const statusText = info.status || "?";
+        return `
+          <div class="run-row">
+            <span class="cmd-status ${info.status}">${escHTML(statusText)}</span>
+            <span class="run-id" title="${escHTML(rid)}">${escHTML(rid)}</span>
+            ${isRunning ? `<button class="danger sm" onclick="cancelRun('${rid}', this)">Cancel</button>` : ""}
+            <button class="ghost sm" onclick="showCommandLog('${rid}')">Log</button>
+          </div>
+        `;
+      }).join("") || '<div class="empty">No commands ran yet.</div>'}
+    </div>`;
+
   return `
-    <h2>⚙ Commands  <span class="count">— launched on the local host</span></h2>
-    <p style="color:var(--text-dim);font-size:.85rem;margin-bottom:1rem">
-      Whitelisted scripts ; logs captured per run.
-      <br><b>Tip</b> : commence par un <b>Bundle</b> puis lance <b>Apply changes</b> pour appliquer.
-    </p>
+    <h2>Commands <span class="count">— run on the local host</span></h2>
     ${bundlesHtml}
     ${sectionsHtml}
     ${leftoverHtml}
-    <div style="margin-top:1.5rem">
-      <h3 style="font-size:.85rem;margin-bottom:.5rem">Active / recent runs</h3>
-      <div id="cmdActiveList">
-        ${Object.entries(running||{}).map(([rid, info]) => `
-          <div style="background:var(--bg-1);border:1px solid var(--border);border-radius:6px;padding:.55rem .7rem;margin-bottom:.4rem;display:flex;align-items:center;gap:.6rem">
-            <span class="cmd-status ${info.status}">${info.status==='running'?'▶':info.status==='ok'?'✓':'✗'}</span>
-            <span style="font-family:monospace;font-size:.75rem;color:var(--text-dim);flex:1">${escHTML(rid)}</span>
-            <button class="ghost" onclick="showCommandLog('${rid}')">📜 Log</button>
-          </div>
-        `).join("") || '<div class="empty">No commands ran yet</div>'}
-      </div>
-    </div>
+    ${runsHtml}
   `;
 }
 async function runCommand(cid, btn) {
@@ -518,24 +752,39 @@ async function runCommand(cid, btn) {
   try {
     const res = await apiPost("/api/command", { id: cid, params });
     if (res.error) throw new Error(res.error);
-    toast(`▶ Started: ${res.label} (run id: ${res.id})`, "ok");
+    toast(`Started: ${res.label || cid} (${res.id})`, "ok");
     card.querySelector("[data-status]").textContent = "running";
     card.querySelector("[data-status]").className = "cmd-status running";
     setTimeout(() => { if (CURRENT_TAB === "commands") renderTab(); }, 500);
   } catch (e) { toast("Error: " + e.message, "err"); }
   finally { setTimeout(() => btn.disabled = false, 800); }
 }
+async function cancelRun(rid, btn) {
+  btn.disabled = true;
+  btn.textContent = "Cancelling…";
+  try {
+    const res = await apiPost(`/api/command/cancel/${encodeURIComponent(rid)}`);
+    if (res.error) throw new Error(res.error);
+    toast(`Cancelled ${rid}`, "ok");
+    setTimeout(() => { if (CURRENT_TAB === "commands") renderTab(); }, 250);
+  } catch (e) {
+    toast("Cancel failed: " + e.message, "err");
+    btn.disabled = false; btn.textContent = "Cancel";
+  }
+}
 async function showCommandLog(rid) {
   const data = await apiGet(`/api/command/log/${encodeURIComponent(rid)}`);
+  const isRunning = data.status === "running";
   const body = `
     <div class="detail-section">
       <h3>Run info</h3>
       <div class="detail-grid">
         <div class="detail-item"><div class="l">ID</div><div class="v">${escHTML(rid)}</div></div>
         <div class="detail-item"><div class="l">Status</div><div class="v">${escHTML(data.status||'?')}</div></div>
-        <div class="detail-item"><div class="l">PID</div><div class="v">${data.pid||'?'}</div></div>
-        <div class="detail-item"><div class="l">Return code</div><div class="v">${data.return_code===undefined?'-':data.return_code}</div></div>
+        <div class="detail-item"><div class="l">PID</div><div class="v">${data.pid||'—'}</div></div>
+        <div class="detail-item"><div class="l">Return code</div><div class="v">${data.return_code===undefined?'—':data.return_code}</div></div>
       </div>
+      ${isRunning ? `<div style="margin-top:.6rem"><button class="danger sm" onclick="cancelRunFromModal('${escHTML(rid)}')">Cancel run</button></div>` : ""}
     </div>
     <div class="detail-section">
       <h3>Command</h3>
@@ -545,7 +794,16 @@ async function showCommandLog(rid) {
       <h3>Log tail (last 8 KB)</h3>
       <pre id="logTail">${escHTML(data.tail||'(empty)')}</pre>
     </div>`;
-  openModal(`Command log — ${rid}`, body);
+  openModal(`Run — ${rid}`, body);
+}
+async function cancelRunFromModal(rid) {
+  try {
+    const res = await apiPost(`/api/command/cancel/${encodeURIComponent(rid)}`);
+    if (res.error) throw new Error(res.error);
+    toast(`Cancelled ${rid}`, "ok");
+    closeModal();
+    setTimeout(() => { if (CURRENT_TAB === "commands") renderTab(); }, 250);
+  } catch (e) { toast("Cancel failed: " + e.message, "err"); }
 }
 
 // ── Workflow details modal ─────────────────────────────────────────────
@@ -563,22 +821,22 @@ async function showDetails(tid) {
         <div class="detail-grid">
           <div class="detail-item"><div class="l">Phase</div><div class="v">${w.phase||'?'}</div></div>
           <div class="detail-item"><div class="l">Category</div><div class="v">${escHTML(w.category||'?')}</div></div>
-          <div class="detail-item"><div class="l">Inputs</div><div class="v">${(w.inputs||[]).join(', ')||'-'}</div></div>
-          <div class="detail-item"><div class="l">Outputs</div><div class="v">${(w.outputs||[]).join(', ')||'-'}</div></div>
+          <div class="detail-item"><div class="l">Inputs</div><div class="v">${(w.inputs||[]).join(', ')||'—'}</div></div>
+          <div class="detail-item"><div class="l">Outputs</div><div class="v">${(w.outputs||[]).join(', ')||'—'}</div></div>
           <div class="detail-item"><div class="l">Nodes</div><div class="v">${w.node_count||'?'}</div></div>
           <div class="detail-item"><div class="l">Features</div><div class="v">${[
             w.has_lora?'LoRA':null, w.has_controlnet?'ControlNet':null, w.has_ipadapter?'IPAdapter':null
-          ].filter(Boolean).join(', ')||'-'}</div></div>
+          ].filter(Boolean).join(', ')||'—'}</div></div>
         </div>
       </div>
       ${w.default_prompts && w.default_prompts.length ? `
         <div class="detail-section">
-          <h3>Default prompts (extracted from CLIPTextEncode)</h3>
+          <h3>Default prompts</h3>
           ${w.default_prompts.map(p => `<pre class="compact">${escHTML(p)}</pre>`).join("")}
         </div>` : ""}
       ${w.widgets_overview && w.widgets_overview.length ? `
         <div class="detail-section">
-          <h3>Key widgets (samplers, prompts, latents)</h3>
+          <h3>Key widgets</h3>
           ${w.widgets_overview.map(o => `
             <div class="widget-row">
               <span class="k">[${o.node_id}] ${escHTML(o.type)}</span>
@@ -599,17 +857,17 @@ async function showDetails(tid) {
             <div style="margin-top:.6rem">
               <h3 style="font-size:.7rem">Outputs</h3>
               ${w.last_run.outputs.map(o =>
-                `<div style="font-family:monospace;font-size:.72rem;color:var(--text-dim)">${escHTML(o.kind)}: ${escHTML(o.subfolder?o.subfolder+'/':'')}${escHTML(o.filename)}</div>`
+                `<div style="font-family:ui-monospace,monospace;font-size:.72rem;color:var(--text-dim)">${escHTML(o.kind)}: ${escHTML(o.subfolder?o.subfolder+'/':'')}${escHTML(o.filename)}</div>`
               ).join("")}
             </div>` : ""}
         </div>` : ""}
       <div class="detail-section">
-        <h3>API workflow JSON ${w.api_available ? '✓' : '⚠ not exported'}</h3>
+        <h3>API workflow JSON ${w.api_available ? '' : '(not exported)'}</h3>
         ${w.api_available ? `<pre>${escHTML(JSON.stringify(w.api_graph, null, 2))}</pre>` : '<div class="empty">Not yet exported. Run command: <code>export_api</code></div>'}
       </div>
-      <div style="display:flex;gap:.5rem;margin-top:1rem">
-        <button onclick="quickRun('${escHTML(w.template_id)}')">▶ Run on least-loaded instance</button>
-        <button class="ghost" onclick="copyJSON('${escHTML(w.template_id)}')">📋 Copy API JSON</button>
+      <div style="display:flex;gap:.4rem;margin-top:.85rem">
+        <button onclick="quickRun('${escHTML(w.template_id)}')">Run on least-loaded</button>
+        <button class="ghost" onclick="copyJSON('${escHTML(w.template_id)}')">Copy API JSON</button>
       </div>
     `;
     document.getElementById("modalBody").innerHTML = body;
@@ -622,14 +880,14 @@ async function quickRun(tid) {
   try {
     const res = await apiPost("/api/job", { template_id: tid });
     if (res.error) throw new Error(res.error);
-    toast(`▶ ${tid} → ${res.instance}`, "ok");
+    toast(`${tid} → ${res.instance}`, "ok");
     closeModal(); setTimeout(refresh, 500);
   } catch (e) { toast("Error: " + e.message, "err"); }
 }
 function copyJSON(tid) {
   if (window._lastWf?.api_graph) {
     navigator.clipboard?.writeText(JSON.stringify(window._lastWf.api_graph, null, 2));
-    toast("📋 API JSON copied", "ok");
+    toast("API JSON copied", "ok");
   }
 }
 function openModal(title, body) {
@@ -648,7 +906,7 @@ async function quickCommand(cid, params = {}) {
   try {
     const res = await apiPost("/api/command", { id: cid, params });
     if (res.error) throw new Error(res.error);
-    toast(`▶ Started: ${res.label} (${res.id})`, "ok");
+    toast(`Started: ${res.label || cid} (${res.id})`, "ok");
   } catch (e) { toast("Error: " + e.message, "err"); }
 }
 
@@ -664,29 +922,29 @@ async function checkSetup() {
     const banner = document.getElementById("setupBanner");
     const hints = document.getElementById("setupHints");
     const todos = [];
-    if (!s.comfyui_installed) todos.push("ComfyUI n'est pas installé");
-    if (!s.manifest_built) todos.push("Catalog non construit (lance Bundle: Standard)");
-    if (!s.classes_built) todos.push("Workflows non classifiés");
-    if (!s.api_workflows_exported) todos.push("Workflows API non exportés");
-    if (!s.comfyui_running && s.comfyui_installed) todos.push("ComfyUI installé mais non lancé (auto-launch au prochain job)");
+    if (!s.comfyui_installed) todos.push("ComfyUI is not installed");
+    if (!s.manifest_built) todos.push("Catalog manifest not built (use the Standard preset)");
+    if (!s.classes_built) todos.push("Workflows not classified");
+    if (!s.api_workflows_exported) todos.push("Workflows not exported as API JSON");
+    if (!s.comfyui_running && s.comfyui_installed) todos.push("ComfyUI installed but not running (auto-launch on next job)");
 
     if (todos.length === 0) {
       banner.style.display = "none";
     } else {
       banner.style.display = "flex";
-      hints.innerHTML = `<ul style="margin:.4rem 0 0 1.2rem; padding:0">${todos.map(t => `<li>${escHTML(t)}</li>`).join("")}</ul>` +
-        (s.manifest && s.manifest.budget_gb ? `<div style="margin-top:.5rem; font-size:.75rem; color:var(--text-muted)">Manifest courant: ${s.manifest.selection_count} modèles · ${s.manifest.selection_size_gb} GB · budget=${s.manifest.budget_gb} GB</div>` : "");
-      // Adjust button label if ComfyUI is already installed
+      hints.innerHTML = `<ul>${todos.map(t => `<li>${escHTML(t)}</li>`).join("")}</ul>` +
+        (s.manifest && s.manifest.budget_gb
+          ? `<div style="margin-top:.4rem; font-size:.72rem; color:var(--text-muted)">Manifest: ${s.manifest.selection_count} models · ${s.manifest.selection_size_gb} GB · budget ${s.manifest.budget_gb} GB</div>`
+          : "");
       const btn = document.getElementById("btnBootstrap");
       if (s.comfyui_installed) {
-        btn.textContent = "✨ Apply changes (build + download)";
+        btn.textContent = "Apply changes";
         btn.onclick = () => quickCommand("apply_changes", { budget: 700 });
       }
     }
   } catch (e) { /* swallow */ }
 }
 
-// Track if user is interacting so we don't blow away their input/scroll
 function userIsInteracting() {
   const a = document.activeElement;
   if (!a) return false;
@@ -697,14 +955,11 @@ async function refresh() {
   try {
     const newData = await apiGet("/api/dashboard");
     DATA = newData;
-    // Always update top-level stats & instances (lightweight, no input loss)
-    renderStats(DATA.stats); renderInstances(DATA.instances);
-
-    // Granular re-render of the tab only if user isn't interacting
+    renderStats(DATA.stats);
+    renderInstances(DATA.instances);
     if (!userIsInteracting()) {
       smartRenderTab();
     } else {
-      // Still update job statuses in-place even during interaction
       patchWorkflowCards();
     }
     checkSetup();
@@ -713,40 +968,29 @@ async function refresh() {
   }
 }
 
-/** In-place patch each workflow card based on latest DATA — no innerHTML wipe. */
 function patchWorkflowCards() {
   if (!DATA) return;
   const allWfs = DATA.groups.flatMap(g => g.workflows);
   for (const w of allWfs) {
     document.querySelectorAll(`.card[data-tid="${cssEscape(w.tid)}"]`).forEach(card => {
       const cur = card.className.match(/card\s+(\w+)/)?.[1];
-      if (cur !== w.status) {
-        card.className = "card " + w.status;
-      }
+      if (cur !== w.status) card.className = "card " + w.status;
     });
   }
 }
+function cssEscape(s) { return String(s).replace(/(["\\])/g, "\\$1"); }
 
-function cssEscape(s) {
-  // Minimal escape for use in attribute selector
-  return String(s).replace(/(["\\])/g, "\\$1");
-}
-
-/** Smart tab render — replaces content only when needed. */
 function smartRenderTab() {
   const c = document.getElementById("content");
-  // Only render if tab content marker doesn't match current tab
   if (c.dataset.renderedTab !== CURRENT_TAB) {
     renderTab();
     c.dataset.renderedTab = CURRENT_TAB;
   } else if (CURRENT_TAB === "all" || ["running","ok","error","pending"].includes(CURRENT_TAB)) {
-    // Light update: just refresh statuses without rebuilding the whole grid
     patchWorkflowCards();
-    // Refresh group counts
     DATA.groups.forEach(g => {
       const grpEl = document.querySelector(`.grp[data-grp="${cssEscape(g.name)}"] .grp-stats`);
       if (grpEl) {
-        grpEl.textContent = `${g.ok}/${g.workflows.length} ok · ${g.error} err · ${g.pending} ○`;
+        grpEl.textContent = `${g.ok}/${g.workflows.length} ok · ${g.error} err · ${g.pending} untested`;
       }
     });
   }
@@ -766,11 +1010,8 @@ async function renderTab() {
 // ── Bundle slider with live preview ────────────────────────────────────
 let _previewTimer = null;
 async function fetchPreview(budget) {
-  try {
-    return await apiGet(`/api/preview?budget=${budget}`);
-  } catch (e) {
-    return { error: e.message };
-  }
+  try { return await apiGet(`/api/preview?budget=${budget}`); }
+  catch (e) { return { error: e.message }; }
 }
 function initBundleSlider() {
   const slider = document.getElementById("budgetSlider");
@@ -787,50 +1028,52 @@ function initBundleSlider() {
 async function updatePreview(budget) {
   const target = document.getElementById("previewPanel");
   if (!target) return;
-  target.innerHTML = '<div class="empty" style="padding:1rem">Computing…</div>';
+  target.innerHTML = '<div class="empty" style="padding:.85rem">Computing…</div>';
   const p = await fetchPreview(budget);
   if (p.error) {
-    target.innerHTML = `<div class="empty" style="padding:1rem;color:var(--err)">${escHTML(p.error)}</div>`;
+    target.innerHTML = `<div class="empty" style="padding:.85rem;color:var(--err)">${escHTML(p.error)}</div>`;
     return;
   }
-  const diffAdded = p.added_count > 0
-    ? `<span style="color:var(--ok)">+${p.added_count} models (+${p.added_size_gb} GB)</span>` : "";
-  const diffRemoved = p.removed_count > 0
-    ? `<span style="color:var(--err)">−${p.removed_count} models</span>` : "";
+  const diffAdded = p.added_count > 0 ? `<span style="color:var(--ok)">+${p.added_count} models (+${p.added_size_gb} GB)</span>` : "";
+  const diffRemoved = p.removed_count > 0 ? `<span style="color:var(--err)">−${p.removed_count} models</span>` : "";
   target.innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:.5rem;margin-bottom:.8rem">
+    <div class="detail-grid" style="margin-bottom:.7rem">
       <div class="detail-item"><div class="l">Selection</div><div class="v">${p.selection_count} models</div></div>
       <div class="detail-item"><div class="l">Total size</div><div class="v">${p.selection_size_gb} GB</div></div>
-      <div class="detail-item"><div class="l">Diff (vs current)</div><div class="v" style="font-size:.78rem">${diffAdded || ""}${diffAdded&&diffRemoved?" · ":""}${diffRemoved || (diffAdded?"":"no change")}</div></div>
+      <div class="detail-item"><div class="l">Diff vs current</div><div class="v" style="font-size:.78rem">${diffAdded || ""}${diffAdded&&diffRemoved?" · ":""}${diffRemoved || (diffAdded?"":"no change")}</div></div>
       <div class="detail-item"><div class="l">Families</div><div class="v">${p.by_family.length}</div></div>
     </div>
-    <div style="max-height:280px;overflow:auto;background:var(--bg-1);border:1px solid var(--border);border-radius:6px;padding:.4rem .6rem">
-      <table style="width:100%;font-size:.78rem;border-collapse:collapse">
-        <thead><tr style="text-align:left;color:var(--text-dim);border-bottom:1px solid var(--border)">
+    <div style="max-height:280px;overflow:auto;background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);padding:.4rem .6rem">
+      <table style="width:100%;font-size:.76rem;border-collapse:collapse">
+        <thead><tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border)">
           <th style="padding:.3rem 0">Family</th><th>#</th><th style="text-align:right;padding-right:.3rem">Size</th>
         </tr></thead>
         <tbody>
           ${p.by_family.map(f => `
-            <tr style="border-bottom:1px solid rgba(42,42,58,.5)">
-              <td style="padding:.3rem 0;font-family:monospace">${escHTML(f.family)}</td>
+            <tr style="border-bottom:1px solid rgba(38,38,45,.5)">
+              <td style="padding:.3rem 0;font-family:ui-monospace,monospace">${escHTML(f.family)}</td>
               <td>${f.count}</td>
-              <td style="text-align:right">${f.size_gb} GB</td>
+              <td style="text-align:right;font-variant-numeric:tabular-nums">${f.size_gb} GB</td>
             </tr>`).join("")}
         </tbody>
       </table>
     </div>
-    <button onclick="applyBudget(${budget})" style="margin-top:.8rem">✨ Apply this budget (build + download + cleanup)</button>
+    <div style="margin-top:.85rem;display:flex;gap:.4rem">
+      <button onclick="applyBudget(${budget})">Apply this budget</button>
+      <span style="font-size:.72rem;color:var(--text-muted);align-self:center">— builds the manifest, downloads missing, removes obsolete</span>
+    </div>
   `;
 }
 async function applyBudget(budget) {
-  if (!confirm(`Lancer apply_changes avec budget=${budget} GB ?\nCela va rebuild le manifest, télécharger les nouveaux modèles, et supprimer les obsolètes.`)) return;
+  if (!confirm(`Apply budget = ${budget} GB ?\n\nThis will rebuild the manifest, download new models, and remove obsolete ones. You can cancel from the Active runs panel.`)) return;
   await runCommandById("apply_changes", { budget });
 }
 async function runCommandById(cid, params) {
   try {
     const res = await apiPost("/api/command", { id: cid, params });
     if (res.error) throw new Error(res.error);
-    toast(`▶ ${res.label} (${res.id})`, "ok");
+    toast(`Started: ${res.label || cid} (${res.id})`, "ok");
+    if (CURRENT_TAB === "commands") setTimeout(renderTab, 250);
   } catch (e) { toast("Error: " + e.message, "err"); }
 }
 document.querySelectorAll(".tab").forEach(t => {
