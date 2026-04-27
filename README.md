@@ -21,11 +21,14 @@ Install, manage, and load-balance fleets of [ComfyUI](https://github.com/comfyan
                           status, queue, logs
 ```
 
-- **Install** — one-shot bootstrap of ComfyUI + custom nodes + curated workflows on a fresh machine (Linux, Windows, macOS).
-- **Manage** — interactive launcher detects what's installed, shows live status, lets you start / stop / open / view logs of every instance.
-- **Cluster** — deploy ComfyUI on N machines that share models via NFS, or pool them with mergerfs (each host stores `1/N`, sees `N/N`).
-- **Route jobs** — `orchestrator.py` accepts workflow-API JSON (the format ComfyUI's `/prompt` endpoint expects), picks a healthy instance, runs it, and returns the output. Round-robin load balancing built in.
-- **Dashboard** — HTML status page on `:9000/dashboard` showing every instance, every queued job, every test run.
+- **Orchestrator-first** — `setup.py` installs *only* the orchestrator (a small stdlib-Python service). Everything else — installing ComfyUI, picking a model budget, deploying instances, managing the cluster — happens **in the dashboard**.
+- **Web dashboard** at `http://127.0.0.1:9000/dashboard` :
+  - "⚙ Install ComfyUI" button → bootstraps a fresh ComfyUI install
+  - Budget slider (100 → 2000 GB, or presets 250/400/700/1500) with live preview of what fits
+  - "✨ Apply changes" → rebuilds catalog, downloads new models, removes obsolete ones
+  - Per-instance status (running, queue depth, last job)
+- **Route jobs** — accepts ComfyUI workflow-API JSON, picks the least-loaded healthy instance, returns the output. Round-robin built in.
+- **Cluster** — `deploy_cluster.sh` deploys to N hosts over SSH (NFS shared, or pool mergerfs where each host stores `1/N`, sees `N/N`).
 
 Everything is **stdlib Python + bash + PowerShell**. No `pip install` for the orchestrator itself, no Docker required, no external services.
 
@@ -33,51 +36,60 @@ Everything is **stdlib Python + bash + PowerShell**. No `pip install` for the or
 
 ## Quick start
 
-### 1. On a single machine
+### 1. Install the orchestrator (the only manual step)
 
 ```bash
 git clone https://github.com/blackmagic42/comfyui-orchestrateur.git
 cd comfyui-orchestrateur
+python setup.py --install
+```
+
+That's it. `setup.py` :
+- creates `~/.comfyui-orchestrator/` for state (logs, pid, config)
+- spawns `orchestrator.py serve --port 9000` as a detached background process
+- opens `http://127.0.0.1:9000/dashboard` in your browser
+
+### 2. From the dashboard, deploy ComfyUI
+
+In the dashboard's **⚙ Commands** tab :
+1. Click **⚙ Install ComfyUI** — fills install path + budget, hit Run
+2. Watch the live log tail in the side panel
+3. When done, your fresh ComfyUI is registered and visible in the **Instances** tab
+
+### 3. Pick a model budget
+
+In the same **Commands** tab, the bundle slider lets you pick how much disk
+to allocate :
+
+| Preset | GB | What you get |
+|---|---|---|
+| Minimal  | 250  | text→image essentials |
+| Image    | 400  | Flux + Qwen-Edit + ControlNet |
+| Standard | 700  | image + video latest |
+| Full     | 1500 | everything, no cap |
+
+Or drag the slider anywhere from 100 → 2000 GB. Preview shows exactly which
+models fit and what gets dropped, **before** any download starts.
+
+Click **✨ Apply changes** → build manifest → download missing → cleanup obsolete.
+
+### 4. Re-run setup.py to manage the orchestrator
+
+```bash
 python setup.py
 ```
 
-The interactive menu walks you through:
-- "Single instance" — installs ComfyUI to `~/comfyui` (Linux) or `C:\Users\…\comfyui` (Windows), launches the orchestrator on `:9000`.
-- "Multi-instance" — N installs on N disks (e.g. `D:\ComfyUI-Flux`, `E:\ComfyUI-SD3`), each on its own port. Each gets a `start_instance.sh` / `.ps1` launcher.
-
-### 2. On a cluster
-
-```bash
-python setup.py            # then pick option 3 (NFS shared) or 4 (pool mergerfs)
 ```
+● Orchestrateur en cours · PID 12345 · port 9000
+  Dashboard : http://127.0.0.1:9000/dashboard
 
-You'll be prompted for:
-- the list of SSH hosts (`user@host`, one per line)
-- which one is the "primary" (downloads models)
-- the shared mount path or the pool config
-- the budget in GB
-
-The script delegates to `deploy_cluster.sh` to rsync code + run remote installs over SSH.
-
-### 3. Re-run any time
-
-```bash
-python setup.py
-```
-
-If you've already installed something, you'll see it on the main menu:
-
-```
-📦 Instances enregistrées : 3
-
-  1. ● running  Flux         D:/ComfyUI-Flux       :8188
-  2. ○ stopped  SD3          E:/ComfyUI-SD3        :8189
-  3. ☁ cluster  DGX-Pool     4 hosts · pool-mergerfs
-
-Que veux-tu faire ?
-  m) Gérer les instances ci-dessus
-  1) Installer une nouvelle instance
-  ...
+Actions :
+  o) Ouvrir le dashboard dans le navigateur
+  s) Arrêter l'orchestrateur
+  r) Redémarrer l'orchestrateur
+  l) Voir le log
+  t) Status détaillé
+  q) Quitter
 ```
 
 `m` lets you start / stop / open the dashboard / view logs / remove from registry.
@@ -110,17 +122,18 @@ The orchestrator API speaks plain JSON-over-HTTP — anything that can `POST /ap
 
 ## Installer
 
-`setup.py` is the cross-platform entry point. The actual install logic lives in:
+`setup.py` installs **only the orchestrator** — a small stdlib-Python service that runs in the background and serves the dashboard on `:9000`. Once it's up, the dashboard's **⚙ Install ComfyUI** button (which calls `bootstrap_install` in the whitelist) does the actual ComfyUI bootstrap by invoking :
 
-| File | What it does |
-|---|---|
-| `install_comfyui.sh` | Linux/macOS bootstrap: clone ComfyUI, install torch + CUDA, custom nodes, copy workflows, configure firewall, launch orchestrator. |
-| `install_comfyui.ps1` | Same, for Windows native (PowerShell). |
-| `setup.sh` | Bash menu wrapper (legacy — `setup.py` supersedes it). |
+| File | What it does | OS |
+|---|---|---|
+| `install_comfyui.sh` | Clone ComfyUI, create per-install venv, install torch CUDA, custom nodes, copy workflows, configure firewall. | Linux / macOS |
+| `install_comfyui.ps1` | Same, for Windows native (PowerShell). Default cu130 stable, `-UseNightly` opt-in for cu132. | Windows |
 
 Custom nodes installed by default:
 - [ComfyUI-Manager](https://github.com/Comfy-Org/ComfyUI-Manager)
 - [comfyui-workflow-manager](https://github.com/blackmagic42/comfyui-workflow-manager) — the sister project for one-click model downloads from the sidebar.
+
+The user never has to call these scripts directly — the dashboard wraps them.
 
 ---
 
@@ -200,11 +213,12 @@ Re-run any of them — they're idempotent and resume from the persistent state d
 
 | File | Role |
 |---|---|
-| `setup.py` | **Cross-platform launcher + lifecycle manager** (start here) |
-| `setup.sh` | Bash menu wrapper (legacy) |
-| `install_comfyui.sh` / `.ps1` | Per-OS bootstrap |
+| `setup.py` | **Orchestrator installer + lifecycle** — start here |
+| `orchestrator.py` | HTTP proxy + dashboard + load balancer (the long-running service) |
+| `dashboard/` | Static HTML/JS served at `:9000/dashboard` |
+| `install_comfyui.sh` / `.ps1` | Per-OS ComfyUI bootstrap (called by the dashboard, not by you) |
 | `deploy_cluster.sh` | Multi-host deployment over SSH |
-| `orchestrator.py` | HTTP proxy + dashboard + load balancer |
+| `setup.sh` | Bash menu wrapper (legacy, predates the orchestrator-first model) |
 | `comfyui_catalog.py` | Model catalog builder/downloader |
 | `classify_workflows.py` | Classify workflows by I/O type |
 | `test_workflows.py` | Run-and-verify harness |

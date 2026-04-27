@@ -615,12 +615,35 @@ COMMAND_WHITELIST = {
     },
 
     # ── First-time setup ───────────────────────────────────────────────
-    "bootstrap_install": {
-        "label": "⚙ First-time install ComfyUI",
-        "description": "Installe ComfyUI from scratch : git clone + venv + torch CUDA + custom nodes + firewall. À utiliser sur une machine vierge.",
-        "cmd": ["bash", str(SCRIPTS_DIR / "install_comfyui.sh"), "--skip-models", "--skip-workflows"],
-        "params": [],
-    },
+    # OS-aware: on Windows we route to the .ps1, elsewhere to the .sh.
+    # The dashboard form lets the user override install_path / port / cuda.
+    "bootstrap_install": (
+        {
+            "label": "⚙ First-time install ComfyUI (Windows)",
+            "description": "Installe ComfyUI from scratch : git clone + venv + torch CUDA + custom nodes + firewall. Skippe le download des modèles (à faire ensuite via Apply changes).",
+            "cmd": ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-File", str(SCRIPTS_DIR / "install_comfyui.ps1"),
+                    "-SkipModels", "-SkipWorkflows"],
+            "params": [
+                {"name": "install_path", "flag": "-InstallPath", "type": "str",
+                 "default": str(Path.home() / "ComfyUI"), "label": "Chemin d'install"},
+                {"name": "budget",       "flag": "-Budget",      "type": "int",
+                 "default": 0,           "label": "Budget (GB, 0 = skip)"},
+            ],
+        } if os.name == "nt" else
+        {
+            "label": "⚙ First-time install ComfyUI",
+            "description": "Installe ComfyUI from scratch : git clone + venv + torch CUDA + custom nodes + firewall. Skippe le download des modèles (à faire ensuite via Apply changes).",
+            "cmd": ["bash", str(SCRIPTS_DIR / "install_comfyui.sh"),
+                    "--skip-models", "--skip-workflows"],
+            "params": [
+                {"name": "install_path", "flag": "--install-path", "type": "str",
+                 "default": str(Path.home() / "comfyui"), "label": "Chemin d'install"},
+                {"name": "budget",       "flag": "--budget",       "type": "int",
+                 "default": 0,           "label": "Budget (GB, 0 = skip)"},
+            ],
+        }
+    ),
 
     # ── Bundle presets (raccourcis budget+thème) ──────────────────────
     "bundle_minimal": {
