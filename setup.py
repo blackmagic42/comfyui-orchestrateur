@@ -505,15 +505,28 @@ def run_install_local(install_path: str, budget: int, max_age: int,
 
 
 def emit_launch_script(install_path: str, port: int, orch_port: int) -> Path:
-    """Generate a per-instance launch script next to the install path."""
+    """Generate a per-instance launch script that uses the local venv if present.
+
+    install_comfyui.sh / .ps1 create a venv at <install_path>/venv with the
+    correct CUDA-enabled torch — we MUST use that python, not the system one,
+    or ComfyUI will hit "Torch not compiled with CUDA enabled".
+    """
     install_path_p = Path(install_path)
+    venv_py_win  = install_path_p / "venv" / "Scripts" / "python.exe"
+    venv_py_unix = install_path_p / "venv" / "bin" / "python"
     if IS_WIN:
         path = install_path_p / "start_instance.ps1"
         path.write_text(
             f"# Auto-generated launcher\n"
             f"$ErrorActionPreference = 'Stop'\n"
             f"Set-Location {install_path_p}\n"
-            f"python main.py --listen 0.0.0.0 --port {port}\n",
+            f"$venvPy = '{venv_py_win}'\n"
+            f"if (Test-Path $venvPy) {{\n"
+            f"    & $venvPy main.py --listen 0.0.0.0 --port {port}\n"
+            f"}} else {{\n"
+            f"    Write-Host 'venv introuvable, fallback python système (CUDA peut ne pas marcher)'\n"
+            f"    python main.py --listen 0.0.0.0 --port {port}\n"
+            f"}}\n",
             encoding="utf-8",
         )
     else:
@@ -522,7 +535,13 @@ def emit_launch_script(install_path: str, port: int, orch_port: int) -> Path:
             f"#!/usr/bin/env bash\n"
             f"set -e\n"
             f"cd {install_path}\n"
-            f"exec python main.py --listen 0.0.0.0 --port {port}\n"
+            f"VENV_PY={venv_py_unix}\n"
+            f"if [[ -x \"$VENV_PY\" ]]; then\n"
+            f"    exec \"$VENV_PY\" main.py --listen 0.0.0.0 --port {port}\n"
+            f"else\n"
+            f"    echo 'venv introuvable, fallback python système (CUDA peut ne pas marcher)'\n"
+            f"    exec python main.py --listen 0.0.0.0 --port {port}\n"
+            f"fi\n"
         )
         path.chmod(0o755)
     return path

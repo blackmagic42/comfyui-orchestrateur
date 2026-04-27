@@ -36,7 +36,7 @@ SKIP_WORKFLOWS=0
 NO_MAGIE_NOIR=0
 NO_ORCHESTRATOR=0
 ORCHESTRATOR_PORT=9000
-CUDA_VERSION="cu130"
+CUDA_VERSION="nightly/cu132"   # nightly cu132 — required for RTX 5090 / Blackwell sm_120
 SHARED_MODELS=""
 IS_PRIMARY=0
 
@@ -78,7 +78,7 @@ ok()   { echo "  ✓ $*" ; }
 warn() { echo "  ⚠ $*" >&2 ; }
 fail() { echo "  ✗ $*" >&2 ; exit 1 ; }
 
-step "0/9" "Configuration"
+step "0/10" "Configuration"
 echo "  OS                 : $OS"
 echo "  Hostname           : $(hostname)"
 echo "  Install path       : $INSTALL_PATH"
@@ -91,7 +91,7 @@ echo "  Shared models      : ${SHARED_MODELS:-<local>}"
 echo "  Role               : $([[ $IS_PRIMARY -eq 1 ]] && echo 'primary (downloads)' || echo 'worker (uses shared)')"
 
 # ── 1. Pré-requis ────────────────────────────────────────────────────────────
-step "1/9" "Vérification des pré-requis"
+step "1/10" "Vérification des pré-requis"
 
 # Detect python : prefer python3, fallback to python
 PYTHON=""
@@ -156,7 +156,7 @@ else
 fi
 
 # ── 2. Clone / update ComfyUI ────────────────────────────────────────────────
-step "2/9" "Cloner / mettre à jour ComfyUI"
+step "2/10" "Cloner / mettre à jour ComfyUI"
 if [[ ! -d "$INSTALL_PATH" ]]; then
     git clone https://github.com/comfyanonymous/ComfyUI.git "$INSTALL_PATH"
     ok "Cloned to $INSTALL_PATH"
@@ -167,7 +167,7 @@ fi
 
 # ── 2.5 Shared models mount (cluster mode) ──────────────────────────────────
 if [[ -n "$SHARED_MODELS" ]]; then
-    step "2.5/9" "Shared models : $SHARED_MODELS"
+    step "2.5/10" "Shared models : $SHARED_MODELS"
     if [[ ! -d "$SHARED_MODELS" ]]; then
         warn "$SHARED_MODELS n'existe pas — vérifie le mount NFS/SMB."
         warn "L'install continue mais models/ sera local."
@@ -185,18 +185,40 @@ if [[ -n "$SHARED_MODELS" ]]; then
     fi
 fi
 
-# ── 3. PyTorch CUDA + dépendances ────────────────────────────────────────────
-step "3/9" "PyTorch CUDA + dépendances ComfyUI"
+# ── 3. Create per-install venv ──────────────────────────────────────────────
+step "3/10" "Création du venv (isolé par instance)"
+VENV_DIR="${INSTALL_PATH}/venv"
+if [[ "$OS" == "windows" ]]; then
+    VENV_PY="${VENV_DIR}/Scripts/python.exe"
+else
+    VENV_PY="${VENV_DIR}/bin/python"
+fi
+
+if [[ ! -x "$VENV_PY" ]]; then
+    $PYTHON -m venv "$VENV_DIR"
+    [[ -x "$VENV_PY" ]] || fail "venv creation failed"
+    ok "venv créé : $VENV_DIR"
+else
+    ok "venv existant : $VENV_DIR"
+fi
+# Re-target $PYTHON to use the venv for the rest of the install
+PYTHON="$VENV_PY"
+
+# ── 4. PyTorch nightly + dépendances ComfyUI ────────────────────────────────
+step "4/10" "PyTorch nightly cu132 + dépendances ComfyUI"
 $PYTHON -m pip install --upgrade pip --quiet
 
 if [[ "$OS" == "mac" ]]; then
     # mac → MPS, no CUDA
     $PYTHON -m pip install torch torchvision torchaudio --quiet
 else
-    $PYTHON -m pip install torch torchvision torchaudio \
-        --extra-index-url "https://download.pytorch.org/whl/${CUDA_VERSION}" --quiet
+    # CRITICAL: --index-url (not --extra-index-url) so pip won't silently
+    # pick PyPI's CPU-only wheels when a matching nightly wheel can't be found.
+    # --pre lets pip pick pre-release/nightly builds.
+    $PYTHON -m pip install --pre torch torchvision torchaudio \
+        --index-url "https://download.pytorch.org/whl/${CUDA_VERSION}" --quiet
 fi
-ok "torch installed"
+ok "torch installed (nightly cu132)"
 
 $PYTHON -m pip install -r "${INSTALL_PATH}/requirements.txt" --quiet
 ok "ComfyUI requirements installed"
@@ -219,7 +241,7 @@ print(f'  torch={torch.__version__}, cuda={torch.cuda.is_available()}, ' \
       f'device={torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"none\"}')"
 
 # ── 4. Custom nodes ──────────────────────────────────────────────────────────
-step "4/9" "Custom nodes"
+step "5/10" "Custom nodes"
 NODES_DIR="${INSTALL_PATH}/custom_nodes"
 mkdir -p "$NODES_DIR"
 
@@ -280,7 +302,7 @@ if [[ $NO_MAGIE_NOIR -eq 0 ]]; then
 fi
 
 # ── 5. Pare-feu (Windows) ────────────────────────────────────────────────────
-step "5/9" "Pare-feu / port 8188"
+step "6/10" "Pare-feu / port 8188"
 if [[ "$OS" == "windows" ]]; then
     # Try via PowerShell — non-fatal if not admin
     powershell.exe -Command "
@@ -301,7 +323,7 @@ elif [[ "$OS" == "linux" ]]; then
 fi
 
 # ── 6. Workflows ─────────────────────────────────────────────────────────────
-step "6/9" "Workflows locaux → user/default/workflows/"
+step "7/10" "Workflows locaux → user/default/workflows/"
 if [[ $SKIP_WORKFLOWS -eq 0 ]]; then
     $PYTHON "${SCRIPT_DIR}/comfyui_catalog.py" \
         --comfyui-path "$INSTALL_PATH" install-workflows
@@ -310,7 +332,7 @@ else
 fi
 
 # ── 7. Modèles ───────────────────────────────────────────────────────────────
-step "7/9" "Modèles latest (≤ ${MAX_AGE_YEARS}y, budget ${BUDGET}GB)"
+step "8/10" "Modèles latest (≤ ${MAX_AGE_YEARS}y, budget ${BUDGET}GB)"
 if [[ $SKIP_MODELS -eq 0 ]]; then
     echo "  → Délégué au dashboard (onglet ⚙ Commands → ✨ Apply changes)"
     echo "    L'orchestrateur lancera ComfyUI automatiquement quand un job arrive."
@@ -319,7 +341,7 @@ else
 fi
 
 # ── 8. Pré-classification + export API workflows ────────────────────────────
-step "8/9" "Classification + export API workflows"
+step "9/10" "Classification + export API workflows"
 if [[ -f "${SCRIPT_DIR}/classify_workflows.py" ]]; then
     $PYTHON "${SCRIPT_DIR}/classify_workflows.py" 2>&1 | tail -3 || warn "classify failed"
     ok "Workflows classifiés"
@@ -329,7 +351,7 @@ if [[ -f "${SCRIPT_DIR}/export_workflows_api.py" ]]; then
 fi
 
 # ── 9. Auto-launch orchestrator ──────────────────────────────────────────────
-step "9/9" "Lancement de l'orchestrateur"
+step "10/10" "Lancement de l'orchestrateur"
 TOKEN=""
 if [[ $NO_ORCHESTRATOR -eq 0 ]]; then
     # Stop any existing orchestrator on this port
