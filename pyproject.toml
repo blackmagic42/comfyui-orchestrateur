@@ -1,0 +1,16 @@
+[project]
+name = "comfyui-orchestrateur"
+description = "Install, manage, and load-balance fleets of ComfyUI instances across one or many machines. Receives workflow API JSON from a VPS and routes it to a healthy ComfyUI instance."
+version = "0.1.0"
+license = { text = "Apache-2.0" }
+readme = "README.md"
+requires-python = ">=3.9"
+# Runtime: stdlib only. Cluster ops require bash + ssh + rsync at the OS level.
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/blackmagic42/comfyui-orchestrateur"
+Issues     = "https://github.com/blackmagic42/comfyui-orchestrateur/issues"
+
+[project.scripts]
+comfyui-orchestrateur = "setup:main"

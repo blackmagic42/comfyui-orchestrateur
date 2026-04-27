@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+
+# Virtual envs
+venv/
+.venv/
+env/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build / dist
+build/
+dist/
+*.egg
+
+# Stateful runtime data — never commit user runs / catalog state / model manifests
+.catalog_state/
+*.log
+*.local
+
+# Model weights / output media (just in case the dir is run from inside a ComfyUI tree)
+*.safetensors
+*.ckpt
+*.pt
+*.pt2
+*.bin
+*.pth
+*.pkl
+*.sft
+*.gguf
+*.png
+*.jpg
+*.jpeg
+*.mp4
+*.webp
+*.gif
+
+# Per-user secrets
+.env
+secrets.json
