@@ -305,6 +305,120 @@
     display: flex; gap: 4px; margin-top: 6px;
   }
 
+  /* ── Family grid (replaces the messy workflow list + force graph) ── */
+  .fam-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 8px;
+  }
+  .fam-card {
+    border: 1px solid var(--line);
+    border-left-width: 3px;
+    background: rgba(0,0,0,0.25);
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+    display: flex; flex-direction: column;
+    min-height: 180px;
+  }
+  .fam-card:hover {
+    background: var(--amber-soft);
+    border-color: var(--amber-dim);
+  }
+  .fam-card-head {
+    display: flex; align-items: baseline; gap: 6px;
+    margin-bottom: 6px;
+    padding-bottom: 5px;
+    border-bottom: 1px dashed var(--line-soft);
+  }
+  .fam-card-name {
+    font-size: 13px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .fam-card-counts {
+    margin-left: auto;
+    font-size: 10.5px; color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .fam-card-list {
+    flex: 1;
+    font-size: 11px; line-height: 1.55;
+    color: var(--text-dim);
+  }
+  .fam-card-list .item {
+    display: flex; align-items: baseline; gap: 6px;
+    padding: 1px 0;
+  }
+  .fam-card-list .item .marker {
+    width: 14px; flex-shrink: 0; text-align: center;
+    color: var(--muted); font-size: 10px;
+  }
+  .fam-card-list .item.latest .marker { color: var(--ok); }
+  .fam-card-list .item.upgrade .marker { color: var(--warn); }
+  .fam-card-list .item .name {
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: var(--font);
+  }
+  .fam-card-list .more {
+    color: var(--muted); font-style: italic;
+    margin-top: 2px; font-size: 10.5px;
+  }
+  .fam-card-foot {
+    margin-top: 6px; padding-top: 5px;
+    border-top: 1px dashed var(--line-soft);
+    font-size: 10.5px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .fam-card-foot .ok-tag { color: var(--ok); }
+  .fam-card-foot .upgrade-tag { color: var(--warn); }
+
+  /* Family detail modal — bigger lists, organized columns */
+  .fam-detail {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  @media (max-width: 760px) { .fam-detail { grid-template-columns: 1fr; } }
+  .fam-detail h4 {
+    font-size: 11px; color: var(--amber);
+    text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 6px; font-weight: 600;
+  }
+  .fam-detail .list {
+    border: 1px solid var(--line);
+    background: rgba(0,0,0,0.25);
+    max-height: 360px; overflow-y: auto;
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+  .fam-detail .list .item {
+    padding: 3px 6px;
+    display: flex; align-items: baseline; gap: 8px;
+    border-bottom: 1px dashed var(--line-soft);
+  }
+  .fam-detail .list .item:last-child { border-bottom: none; }
+  .fam-detail .list .item:hover { background: var(--amber-soft); }
+  .fam-detail .list .item .marker {
+    width: 14px; flex-shrink: 0; text-align: center;
+    font-size: 10px; color: var(--muted);
+  }
+  .fam-detail .list .item.latest .marker { color: var(--ok); }
+  .fam-detail .list .item.upgrade .marker { color: var(--warn); }
+  .fam-detail .list .item .name {
+    flex: 1; min-width: 0;
+    word-break: break-all; font-family: var(--font);
+  }
+  .fam-detail .list .item .meta {
+    font-size: 10px; color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .fam-detail .list .item.clickable { cursor: pointer; color: var(--text); }
+  .fam-detail .upgrades-block {
+    grid-column: 1 / -1;
+    margin-top: 8px;
+  }
+
   /* ── Upgrade suggestions ──────────────────────────────────────────── */
   .upgrade-family {
     border: 1px solid var(--line);
@@ -702,20 +816,6 @@
     <div class="tower">
       <div class="main">
 
-        <!-- WORKFLOWS — moved up: it's the primary navigation -->
-        <section class="box">
-          <h2>workflows <span class="meta" id="wf-meta">—</span></h2>
-          <div class="pills" id="filterPills">
-            <button class="pill active" data-tab="all">all</button>
-            <button class="pill" data-tab="running">running</button>
-            <button class="pill" data-tab="ok">success</button>
-            <button class="pill" data-tab="error">errors</button>
-            <button class="pill" data-tab="pending">untested</button>
-            <button class="pill" data-tab="submit">submit</button>
-          </div>
-          <div id="wfContent"><div class="empty">loading…</div></div>
-        </section>
-
         <!-- INSTANCES -->
         <section class="box">
           <h2>comfyui instances <span class="meta" id="inst-meta">scanning…</span></h2>
@@ -728,30 +828,14 @@
           <div id="cmdContent"><div class="empty">loading…</div></div>
         </section>
 
-        <!-- UPGRADE SUGGESTIONS — workflows using older variants -->
-        <section class="box" id="upgradesSection">
-          <h2>upgrade suggestions <span class="meta" id="upgrades-meta">scanning…</span></h2>
-          <div id="upgradesContent"><div class="empty">scanning catalog for newer variants…</div></div>
-        </section>
-
-        <!-- MODEL ↔ WORKFLOW GRAPH -->
-        <section class="box" id="graphSection">
-          <h2>
-            <span style="cursor:pointer; user-select:none" onclick="toggleGraph()">
-              <span id="graphChevron">▶</span> model ↔ workflow graph
-            </span>
-            <span class="meta" id="graph-meta">click to expand</span>
-          </h2>
-          <div id="graphContent" style="display:none">
-            <div style="font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px">
-              filter by family — click to isolate, click again to clear
-            </div>
-            <div id="graphLegend" style="display:flex; flex-wrap:wrap; gap:5px; margin-bottom:10px"></div>
-            <div id="graphInfo" style="font-size:11px; color:var(--muted); margin-bottom:6px">
-              workflows = squares · models = circles · drag a node to move it · drag empty space to pan · wheel to zoom · hover for label
-            </div>
-            <svg id="graphSvg" style="width:100%; height:640px; background:rgba(0,0,0,0.45); border:1px solid var(--line); cursor:grab; display:block"></svg>
+        <!-- MODEL FAMILIES — relations + evolutions, organized by family -->
+        <section class="box" id="familiesSection">
+          <h2>model families <span class="meta" id="fam-meta">scanning…</span></h2>
+          <div style="font-size:11px; color:var(--muted); margin-bottom:8px">
+            each family is a self-contained product space — its models, the workflows that use them,
+            and the upgrades available within. click a family to drill in.
           </div>
+          <div class="fam-grid" id="famGrid"><div class="empty">loading model space…</div></div>
         </section>
 
       </div>
@@ -790,7 +874,6 @@ if (window.ORCHESTRATOR_TOKEN) {
 }
 let DATA = null;
 let COMMANDS_DATA = null;
-let WF_FILTER = "all";
 let SEARCH = "";
 
 // Live event stream state
@@ -956,87 +1039,6 @@ async function pollEvents() {
   } catch (e) { /* swallow */ }
 }
 setInterval(pollEvents, 1000);
-
-// ── Workflow grid ───────────────────────────────────────────────────────
-function renderGroups(groups, filter = "all") {
-  const f = SEARCH.toLowerCase();
-  const visible = groups.map(g => {
-    const wfs = g.workflows.filter(w => {
-      if (filter !== "all" && w.status !== filter) return false;
-      if (f && !w.tid.toLowerCase().includes(f) && !g.name.toLowerCase().includes(f)) return false;
-      return true;
-    });
-    return { ...g, _visible: wfs };
-  }).filter(g => g._visible.length > 0);
-
-  if (!visible.length) return `<div class="empty">no workflows match.</div>`;
-
-  return visible.map(g => `
-    <div class="grp" data-grp="${escHTML(g.name)}">
-      <div class="grp-head" onclick="this.parentElement.classList.toggle('collapsed')">
-        <div class="grp-name">› ${escHTML(g.name)}</div>
-        <div class="grp-stats">${g.ok}/${g.workflows.length} ok · ${g.error} err · ${g.pending} untested</div>
-      </div>
-      <div class="grp-grid">
-        ${g._visible.map(w => `
-          <div class="card ${w.status}" data-tid="${escHTML(w.tid)}" onclick="showDetails('${escHTML(w.tid)}')">
-            <div class="card-name">${escHTML(w.tid)}</div>
-            <div class="card-meta">
-              <span class="tag">ph${w.phase || "?"}</span>
-              ${w.duration ? `<span class="tag">${w.duration}s</span>` : ""}
-              ${w.instance ? `<span class="tag">${escHTML((w.instance||"").replace("http://","").slice(0,18))}</span>` : ""}
-              ${w.status === "running" ? '<span class="tag run">running</span>' : ""}
-              ${w.status === "ok" ? '<span class="tag ok">ok</span>' : ""}
-            </div>
-            ${w.error ? `<div class="err-msg" title="${escHTML(w.error)}">${escHTML(w.error.slice(0, 100))}</div>` : ""}
-          </div>
-        `).join("")}
-      </div>
-    </div>`).join("");
-}
-
-// ── Submit Job (compact, inline) ───────────────────────────────────────
-function renderSubmit() {
-  if (!DATA) return "loading…";
-  return `
-    <div style="color:var(--text-dim);font-size:11px;margin-bottom:8px">
-      pick a workflow to run on the least-loaded instance.
-    </div>
-    <div class="submit-form">
-      <select id="catSelect" onchange="updateWfList()">
-        <option value="">all categories</option>
-        ${[...new Set(DATA.groups.map(g => g.name))].sort().map(c =>
-          `<option value="${escHTML(c)}">${escHTML(c)}</option>`).join("")}
-      </select>
-      <select id="wfSelect"></select>
-      <button class="primary" onclick="submitJob()" id="submitBtn">run</button>
-    </div>
-    <textarea id="promptInput" rows="2" placeholder="override prompt (optional)…"
-      style="width:100%;resize:vertical;margin-top:6px"></textarea>
-  `;
-}
-function updateWfList() {
-  const cat = document.getElementById("catSelect").value;
-  const sel = document.getElementById("wfSelect");
-  const items = DATA.groups.filter(g => !cat || g.name === cat)
-    .flatMap(g => g.workflows.map(w => ({ ...w, cat: g.name })))
-    .sort((a, b) => a.tid.localeCompare(b.tid));
-  sel.innerHTML = items.map(w =>
-    `<option value="${escHTML(w.tid)}">${escHTML(w.cat)} · ${escHTML(w.tid)} (${w.status})</option>`).join("");
-}
-async function submitJob() {
-  const tid = document.getElementById("wfSelect").value;
-  const prompt = document.getElementById("promptInput").value;
-  if (!tid) return;
-  document.getElementById("submitBtn").disabled = true;
-  try {
-    const res = await apiPost("/api/job", { template_id: tid, prompt });
-    if (res.error) throw new Error(res.error);
-    toast(`submitted: ${tid} → ${res.instance}`, "ok");
-    setTimeout(refresh, 500);
-  } catch (e) { toast("error: " + e.message, "err"); }
-  finally { document.getElementById("submitBtn").disabled = false; }
-}
 
 // ── Commands panel (always visible) ────────────────────────────────────
 const CMD_LABELS = {
@@ -1330,28 +1332,6 @@ function userIsInteracting() {
   if (!a) return false;
   return a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT";
 }
-function patchWorkflowCards() {
-  if (!DATA) return;
-  const allWfs = DATA.groups.flatMap(g => g.workflows);
-  for (const w of allWfs) {
-    document.querySelectorAll(`.card[data-tid="${cssEscape(w.tid)}"]`).forEach(card => {
-      const cur = card.className.match(/card\s+(\w+)/)?.[1];
-      if (cur !== w.status) card.className = "card " + w.status;
-    });
-  }
-}
-function rerenderWorkflows() {
-  const container = document.getElementById("wfContent");
-  if (WF_FILTER === "submit") {
-    container.innerHTML = renderSubmit();
-    setTimeout(updateWfList, 0);
-  } else {
-    container.innerHTML = renderGroups(DATA?.groups || [], WF_FILTER);
-  }
-  // Update the meta line
-  const ok = DATA?.stats?.ok || 0, total = DATA?.stats?.total || 0;
-  document.getElementById("wf-meta").textContent = `${ok}/${total} ok`;
-}
 async function rerenderCommands() {
   document.getElementById("cmdContent").innerHTML = await renderCommands();
   setTimeout(initBundleSlider, 0);
@@ -1362,15 +1342,6 @@ async function refresh() {
     DATA = newData;
     renderStats(DATA.stats, DATA.instances);
     renderInstances(DATA.instances);
-    if (!userIsInteracting()) {
-      // Update workflow grid in place if same filter
-      const wfRendered = document.querySelector("#wfContent .grp, #wfContent .empty, #wfContent select");
-      if (wfRendered) {
-        if (WF_FILTER !== "submit") patchWorkflowCards();
-      } else {
-        rerenderWorkflows();
-      }
-    }
     checkSetup();
   } catch (e) {
     if (e.message !== "auth required") console.warn("refresh failed:", e.message);
@@ -1428,398 +1399,198 @@ async function applyBudget(budget) {
   } catch (e) { toast("error: " + e.message, "err"); }
 }
 
-// ── Model ↔ Workflow graph (force-directed SVG) ────────────────────────
-let GRAPH_LOADED = false;
-let GRAPH_DATA = null;
-const GRAPH_STATE = {
-  nodes: [],          // {id, type, family, color, x, y, vx, vy, radius}
-  edges: [],          // {source, target}
-  zoom: 1, panX: 0, panY: 0,
-  width: 0, height: 0,
-  hoverId: null,
-  dragId: null,
-  panDragging: false,
-  filterFamily: "",   // "" = show all; otherwise only this family + its neighbours
-};
-async function toggleGraph() {
-  const c = document.getElementById("graphContent");
-  const ch = document.getElementById("graphChevron");
-  const meta = document.getElementById("graph-meta");
-  const open = c.style.display !== "none";
-  if (open) {
-    c.style.display = "none";
-    ch.textContent = "▶";
-    meta.textContent = "click to expand";
+// ── Model families overview (replaces the cluttered workflow list + force graph) ─
+let GRAPH_DATA = null;        // raw /api/model-graph response
+let UPGRADES_DATA = null;     // raw /api/upgrades response
+let FAMILIES = [];            // computed list of family aggregates
+async function loadFamilies() {
+  const meta = document.getElementById("fam-meta");
+  const grid = document.getElementById("famGrid");
+  try {
+    // Fetch the two data sources in parallel
+    const [graph, upgrades] = await Promise.all([
+      apiGet("/api/model-graph"),
+      apiGet("/api/upgrades"),
+    ]);
+    if (graph.error) {
+      meta.textContent = graph.error;
+      grid.innerHTML = `<div class="empty">${escHTML(graph.error)}</div>`;
+      return;
+    }
+    GRAPH_DATA = graph;
+    UPGRADES_DATA = upgrades.error ? {by_workflow: {}, by_model: {}, groups: []} : upgrades;
+    FAMILIES = aggregateFamilies(graph, UPGRADES_DATA);
+
+    const totalUpgrades = (UPGRADES_DATA.stats || {}).workflows_with_upgrades || 0;
+    meta.textContent = `${FAMILIES.length} families · ${graph.stats.models} models · ${graph.stats.workflows} workflows`
+                     + (totalUpgrades ? ` · ${totalUpgrades} can upgrade` : ` · all up to date`);
+
+    renderFamilyGrid();
+  } catch (e) {
+    meta.textContent = "error";
+    grid.innerHTML = `<div class="empty">error: ${escHTML(e.message)}</div>`;
+  }
+}
+
+/** Aggregate model-graph + upgrades into a per-family structure. */
+function aggregateFamilies(graph, upgrades) {
+  const upgradeFromMap = upgrades.by_model || {};        // old → new
+  const upgradeFromSet = new Set(Object.keys(upgradeFromMap));
+  const upgradeToSet   = new Set(Object.values(upgradeFromMap));
+  const upgradesByWf   = upgrades.by_workflow || {};
+
+  // Index nodes
+  const byFamily = {};
+  for (const n of graph.nodes) {
+    if (!byFamily[n.family]) {
+      byFamily[n.family] = {
+        name: n.family,
+        color: n.color,
+        models: [],
+        workflows: [],
+        upgrade_pairs: [],
+      };
+    }
+    if (n.type === "model") {
+      const justName = n.label;
+      byFamily[n.family].models.push({
+        name: justName,
+        size_gb: n.size_gb || 0,
+        is_latest: upgradeToSet.has(justName),
+        is_old:    upgradeFromSet.has(justName),
+        upgrade_to: upgradeFromMap[justName] || null,
+        directory: n.directory || "",
+      });
+    } else if (n.type === "workflow") {
+      const tid = n.label;
+      byFamily[n.family].workflows.push({
+        tid,
+        model_count: n.model_count || 0,
+        has_upgrade: !!upgradesByWf[tid],
+      });
+    }
+  }
+
+  // Collect upgrade pairs per family
+  for (const [tid, ups] of Object.entries(upgradesByWf)) {
+    for (const u of ups) {
+      if (byFamily[u.family]) {
+        byFamily[u.family].upgrade_pairs.push({tid, ...u});
+      }
+    }
+  }
+
+  // Sort: workflows alphabetically, models latest first, then upgradeable, then rest
+  for (const f of Object.values(byFamily)) {
+    f.workflows.sort((a, b) => {
+      if (a.has_upgrade !== b.has_upgrade) return a.has_upgrade ? -1 : 1;
+      return a.tid.localeCompare(b.tid);
+    });
+    f.models.sort((a, b) => {
+      // latest first, then old/upgradeable, then others
+      const score = m => (m.is_latest ? 0 : (m.is_old ? 1 : 2));
+      const s = score(a) - score(b);
+      return s !== 0 ? s : a.name.localeCompare(b.name);
+    });
+    f.upgrade_count = new Set(f.upgrade_pairs.map(u => u.tid)).size;
+  }
+
+  // Sort families: those with upgrades first (most actionable), then by workflow count desc
+  return Object.values(byFamily).sort((a, b) => {
+    if ((a.upgrade_count > 0) !== (b.upgrade_count > 0)) return a.upgrade_count > 0 ? -1 : 1;
+    return (b.workflows.length + b.models.length) - (a.workflows.length + a.models.length);
+  });
+}
+
+function renderFamilyGrid() {
+  const grid = document.getElementById("famGrid");
+  if (!FAMILIES.length) {
+    grid.innerHTML = `<div class="empty">no families found.</div>`;
     return;
   }
-  c.style.display = "block";
-  ch.textContent = "▼";
-  meta.textContent = "loading…";
-  if (!GRAPH_LOADED) {
-    try {
-      const data = await apiGet("/api/model-graph");
-      if (data.error) {
-        meta.textContent = data.error;
-        document.getElementById("graphSvg").innerHTML =
-          `<text x="50%" y="50%" text-anchor="middle" fill="var(--muted)" font-family="var(--font)">${escHTML(data.error)}</text>`;
-        return;
-      }
-      GRAPH_DATA = data;
-      GRAPH_LOADED = true;
-      initGraph(data);
-      meta.textContent = `${data.stats.workflows} wf · ${data.stats.models} models · ${data.stats.edges} edges · ${data.stats.families} families`;
-      renderLegend(data.families);
-    } catch (e) {
-      meta.textContent = "error: " + e.message;
-    }
-  } else {
-    meta.textContent = `${GRAPH_DATA.stats.workflows} wf · ${GRAPH_DATA.stats.models} models · ${GRAPH_DATA.stats.edges} edges · ${GRAPH_DATA.stats.families} families`;
-  }
-}
-function renderLegend(families) {
-  const legend = document.getElementById("graphLegend");
-  // Count nodes per family for the badge
-  const counts = {};
-  for (const n of (GRAPH_DATA?.nodes || [])) {
-    counts[n.family] = (counts[n.family] || 0) + 1;
-  }
-  const allActive = !GRAPH_STATE.filterFamily;
-  const items = [
-    `<button class="fam-pill ${allActive ? 'active' : ''}" data-family="" style="${allActive
-      ? 'border:1px solid var(--ok); color:var(--ok); background:rgba(122,214,122,0.12)'
-      : 'border:1px solid var(--line); color:var(--text-dim); background:transparent'}; padding:2px 9px; font-size:10.5px; letter-spacing:0.4px; cursor:pointer; font-family:var(--font)"
-      onclick="applyGraphFilter('')">all (${GRAPH_DATA?.nodes?.length || 0})</button>`
-  ];
-  for (const [f, c] of Object.entries(families)) {
-    const active = GRAPH_STATE.filterFamily === f;
-    const n = counts[f] || 0;
-    items.push(`<button class="fam-pill ${active ? 'active' : ''}" data-family="${escHTML(f)}"
-      style="border:1px solid ${active ? c : 'transparent'}; outline:1px solid ${c}; color:${c}; background:${c}${active ? '33' : '1a'}; padding:2px 9px; font-size:10.5px; letter-spacing:0.4px; cursor:pointer; font-family:var(--font); ${active ? 'font-weight:600' : ''}"
-      onclick="applyGraphFilter('${escHTML(f)}')">${escHTML(f)} <span style="opacity:0.7">${n}</span></button>`);
-  }
-  legend.innerHTML = items.join("");
+  grid.innerHTML = FAMILIES.map((f, i) => renderFamilyCard(f, i)).join("");
 }
 
-function applyGraphFilter(family) {
-  // Toggle off if clicking the active filter
-  if (GRAPH_STATE.filterFamily === family) family = "";
-  GRAPH_STATE.filterFamily = family;
-  renderLegend(GRAPH_DATA.families);
-  drawGraph();
-}
-function initGraph(data) {
-  const svg = document.getElementById("graphSvg");
-  // Robust dimension lookup: rect.width is unreliable for SVG with width:100%.
-  // Fall back to clientWidth / parent / hardcoded default in that order.
-  const rect = svg.getBoundingClientRect();
-  let W = rect.width  || svg.clientWidth  || svg.parentElement.clientWidth || 800;
-  let H = rect.height || svg.clientHeight || 560;
-  if (!Number.isFinite(W) || W < 100) W = 800;
-  if (!Number.isFinite(H) || H < 100) H = 560;
-  GRAPH_STATE.width = W;
-  GRAPH_STATE.height = H;
+function renderFamilyCard(f, idx) {
+  // Show the most-meaningful 4 models + 3 workflows in the compact card
+  const topModels = f.models.slice(0, 4);
+  const remainingModels = f.models.length - topModels.length;
+  const topWorkflows = f.workflows.slice(0, 3);
+  const remainingWorkflows = f.workflows.length - topWorkflows.length;
 
-  const nodes = data.nodes.map(n => ({
-    ...n,
-    radius: n.type === "model" ? 5 : 4,
-    x: 0, y: 0,
-    vx: 0, vy: 0,
-  }));
-  const idx = Object.fromEntries(nodes.map((n, i) => [n.id, i]));
-  const edges = data.edges
-    .filter(e => idx[e.source] !== undefined && idx[e.target] !== undefined)
-    .map(e => ({ source: idx[e.source], target: idx[e.target] }));
+  const modelsHtml = topModels.map(m => {
+    const cls = m.is_latest ? "latest" : (m.is_old ? "upgrade" : "");
+    const marker = m.is_latest ? "★" : (m.is_old ? "↑" : "·");
+    return `<div class="item ${cls}"><span class="marker">${marker}</span><span class="name" title="${escHTML(m.name)}">${escHTML(m.name)}</span></div>`;
+  }).join("");
 
-  GRAPH_STATE.nodes = nodes;
-  GRAPH_STATE.edges = edges;
+  const workflowsHtml = topWorkflows.map(w => {
+    const cls = w.has_upgrade ? "upgrade" : "";
+    const marker = w.has_upgrade ? "↑" : "›";
+    return `<div class="item ${cls}"><span class="marker">${marker}</span><span class="name" title="${escHTML(w.tid)}">${escHTML(w.tid)}</span></div>`;
+  }).join("");
 
-  // Position nodes initially clustered by family using a polar layout.
-  const families = [...new Set(nodes.map(n => n.family || "unknown"))];
-  const cx = W / 2, cy = H / 2;
-  const R = Math.max(80, Math.min(cx, cy) * 0.7);
-  families.forEach((fam, fi) => {
-    const angle = (fi / Math.max(1, families.length)) * Math.PI * 2;
-    const ax = cx + Math.cos(angle) * R * 0.65;
-    const ay = cy + Math.sin(angle) * R * 0.65;
-    const famNodes = nodes.filter(n => (n.family || "unknown") === fam);
-    famNodes.forEach((n, ni) => {
-      const local = (ni / Math.max(1, famNodes.length)) * Math.PI * 2;
-      const lr = n.type === "workflow" ? 35 : 60;
-      n.x = ax + Math.cos(local) * lr;
-      n.y = ay + Math.sin(local) * lr;
-    });
-  });
-  // Sanity pass: any non-finite coordinate gets reset to centre + jitter
-  for (const n of nodes) {
-    if (!Number.isFinite(n.x)) n.x = cx + (Math.random()-0.5) * 50;
-    if (!Number.isFinite(n.y)) n.y = cy + (Math.random()-0.5) * 50;
-  }
+  const footer = f.upgrade_count > 0
+    ? `<span class="upgrade-tag">⚠ ${f.upgrade_count} workflow${f.upgrade_count > 1 ? "s" : ""} can upgrade</span><span style="color:var(--muted)">click to view</span>`
+    : `<span class="ok-tag">✓ all up to date</span><span style="color:var(--muted)">${f.models.length}m / ${f.workflows.length}wf</span>`;
 
-  runSimulation(150);
-  bindGraphInteractions();
-  drawGraph();
+  return `
+    <div class="fam-card" style="border-left-color:${f.color}" onclick="openFamilyDetail(${idx})">
+      <div class="fam-card-head">
+        <span class="fam-card-name" style="color:${f.color}">${escHTML(f.name)}</span>
+        <span class="fam-card-counts">${f.models.length}m · ${f.workflows.length}wf</span>
+      </div>
+      <div class="fam-card-list">
+        <div style="color:var(--muted); font-size:9.5px; text-transform:uppercase; letter-spacing:0.5px; margin:2px 0">models</div>
+        ${modelsHtml}
+        ${remainingModels > 0 ? `<div class="more">… +${remainingModels} more</div>` : ""}
+        <div style="color:var(--muted); font-size:9.5px; text-transform:uppercase; letter-spacing:0.5px; margin:6px 0 2px">workflows</div>
+        ${workflowsHtml}
+        ${remainingWorkflows > 0 ? `<div class="more">… +${remainingWorkflows} more</div>` : ""}
+      </div>
+      <div class="fam-card-foot">${footer}</div>
+    </div>`;
 }
 
-function runSimulation(iterations) {
-  const { nodes, edges, width, height } = GRAPH_STATE;
-  const cx = width / 2, cy = height / 2;
-  // Bounds for safety — keep nodes inside a reasonable canvas
-  const margin = 20;
-  const minX = -margin, maxX = width + margin;
-  const minY = -margin, maxY = height + margin;
-  // Force caps prevent runaway acceleration that explodes into Infinity/NaN.
-  const F_REPULSE = 60;            // gentler than the 280 we had before
-  const F_PAIR_MAX = 30;           // hard cap per pair
-  const V_MAX = 25;                // hard cap on per-step velocity
+function openFamilyDetail(idx) {
+  const f = FAMILIES[idx];
+  if (!f) return;
 
-  for (let it = 0; it < iterations; it++) {
-    // Reset velocities each iteration (Verlet-ish style: velocity is force, not momentum)
-    for (const n of nodes) { n.vx = 0; n.vy = 0; }
+  const modelsList = f.models.map(m => {
+    const cls = m.is_latest ? "latest" : (m.is_old ? "upgrade clickable" : "");
+    const marker = m.is_latest ? "★" : (m.is_old ? "↑" : "·");
+    const meta = m.is_latest
+      ? "LATEST"
+      : (m.is_old ? `→ ${m.upgrade_to}` : (m.size_gb ? `${m.size_gb} GB` : ""));
+    return `<div class="item ${cls}">
+      <span class="marker">${marker}</span>
+      <span class="name">${escHTML(m.name)}</span>
+      <span class="meta">${escHTML(meta)}</span>
+    </div>`;
+  }).join("") || `<div class="empty">no models in this family</div>`;
 
-    // Repulsion — every pair
-    for (let i = 0; i < nodes.length; i++) {
-      const a = nodes[i];
-      for (let j = i + 1; j < nodes.length; j++) {
-        const b = nodes[j];
-        let dx = a.x - b.x, dy = a.y - b.y;
-        let d2 = dx * dx + dy * dy;
-        if (!Number.isFinite(d2) || d2 < 1) {
-          dx = (Math.random() - 0.5) * 2;
-          dy = (Math.random() - 0.5) * 2;
-          d2 = Math.max(1, dx*dx + dy*dy);
-        }
-        const dist = Math.sqrt(d2);
-        let f = F_REPULSE / d2;
-        if (f > F_PAIR_MAX) f = F_PAIR_MAX;
-        const fx = (dx / dist) * f, fy = (dy / dist) * f;
-        a.vx += fx; a.vy += fy;
-        b.vx -= fx; b.vy -= fy;
-      }
-    }
+  const workflowsList = f.workflows.map(w => {
+    const cls = "clickable" + (w.has_upgrade ? " upgrade" : "");
+    const marker = w.has_upgrade ? "↑" : "›";
+    return `<div class="item ${cls}" onclick="closeModal();showDetails('${escHTML(w.tid)}')">
+      <span class="marker">${marker}</span>
+      <span class="name">${escHTML(w.tid)}</span>
+      <span class="meta">${w.model_count} models${w.has_upgrade ? " · upgrade" : ""}</span>
+    </div>`;
+  }).join("") || `<div class="empty">no workflows in this family</div>`;
 
-    // Spring attraction along edges
-    for (const e of edges) {
-      const a = nodes[e.source], b = nodes[e.target];
-      const dx = b.x - a.x, dy = b.y - a.y;
-      let dist = Math.sqrt(dx * dx + dy * dy);
-      if (!Number.isFinite(dist) || dist < 0.5) dist = 0.5;
-      const k = 0.02 * (dist - 60);
-      const fx = (dx / dist) * k * Math.min(dist, 200);
-      const fy = (dy / dist) * k * Math.min(dist, 200);
-      a.vx += fx; a.vy += fy;
-      b.vx -= fx; b.vy -= fy;
-    }
-
-    // Centring force
-    for (const n of nodes) {
-      n.vx += (cx - n.x) * 0.01;
-      n.vy += (cy - n.y) * 0.01;
-    }
-
-    // Apply velocities, clamp to safe values, clamp position to canvas
-    for (const n of nodes) {
-      // Velocity sanitation
-      if (!Number.isFinite(n.vx)) n.vx = 0;
-      if (!Number.isFinite(n.vy)) n.vy = 0;
-      if (n.vx >  V_MAX) n.vx =  V_MAX;
-      if (n.vx < -V_MAX) n.vx = -V_MAX;
-      if (n.vy >  V_MAX) n.vy =  V_MAX;
-      if (n.vy < -V_MAX) n.vy = -V_MAX;
-      n.x += n.vx;
-      n.y += n.vy;
-      // Position bounds
-      if (!Number.isFinite(n.x)) n.x = cx;
-      if (!Number.isFinite(n.y)) n.y = cy;
-      if (n.x < minX) n.x = minX;
-      if (n.x > maxX) n.x = maxX;
-      if (n.y < minY) n.y = minY;
-      if (n.y > maxY) n.y = maxY;
-    }
+  // Group upgrade pairs by workflow
+  const upgradesByWf = {};
+  for (const u of f.upgrade_pairs) {
+    if (!upgradesByWf[u.tid]) upgradesByWf[u.tid] = [];
+    upgradesByWf[u.tid].push(u);
   }
-}
-
-function drawGraph() {
-  const { nodes, edges, hoverId, zoom, panX, panY, filterFamily } = GRAPH_STATE;
-  const svg = document.getElementById("graphSvg");
-
-  // Final defensive pass — nothing reaches the SVG with NaN/Infinity coords
-  const safe = v => (Number.isFinite(v) ? v : 0);
-
-  // Filter logic: when a family is selected, "highlighted" = nodes of that
-  // family + their direct neighbours; everything else is dimmed (not removed)
-  // so the user keeps spatial context.
-  const highlighted = new Set();
-  if (filterFamily) {
-    for (const n of nodes) if (n.family === filterFamily) highlighted.add(n.id);
-    // Add direct neighbours
-    for (const e of edges) {
-      const a = nodes[e.source], b = nodes[e.target];
-      if (highlighted.has(a.id)) highlighted.add(b.id);
-      if (highlighted.has(b.id)) highlighted.add(a.id);
-    }
-  }
-  const isLit = (n) => !filterFamily || highlighted.has(n.id);
-
-  const g = `<g transform="translate(${panX} ${panY}) scale(${zoom})">`;
-
-  // Edges below — render dimmed first, lit second so lit ones overdraw
-  const edgesDim = [], edgesLit = [];
-  for (const e of edges) {
-    const a = nodes[e.source], b = nodes[e.target];
-    const litEdge = isLit(a) && isLit(b);
-    const isHover = (a.id === hoverId || b.id === hoverId);
-    let stroke, width;
-    if (isHover) { stroke = a.color; width = 1.6; }
-    else if (filterFamily && !litEdge) { stroke = "rgba(245,163,11,0.04)"; width = 0.4; }
-    else if (filterFamily && litEdge)   { stroke = a.color + "88"; width = 1.0; }
-    else                                 { stroke = "rgba(245,163,11,0.18)"; width = 0.6; }
-    const html = `<line x1="${safe(a.x)}" y1="${safe(a.y)}" x2="${safe(b.x)}" y2="${safe(b.y)}" stroke="${stroke}" stroke-width="${width}" />`;
-    (litEdge || !filterFamily ? edgesLit : edgesDim).push(html);
-  }
-
-  // Nodes — bigger radii (5/7 instead of 4/5), dim non-highlighted to ~30%
-  const nodesDim = [], nodesLit = [];
-  nodes.forEach((n, i) => {
-    const isHover = n.id === hoverId;
-    const lit = isLit(n);
-    const baseR = n.type === "workflow" ? 5 : 7;
-    const r = baseR * (isHover ? 1.7 : 1);
-    const x = safe(n.x), y = safe(n.y);
-    const op = lit ? 1 : 0.18;
-    const stroke = isHover ? "#fff" : (lit ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.3)");
-    const sw = isHover ? 1.5 : (lit ? 0.8 : 0.4);
-    let html;
-    if (n.type === "workflow") {
-      html = `<rect x="${x - r}" y="${y - r}" width="${r*2}" height="${r*2}" fill="${n.color}" fill-opacity="${op}" stroke="${stroke}" stroke-width="${sw}" data-i="${i}" style="cursor:pointer" />`;
-    } else {
-      html = `<circle cx="${x}" cy="${y}" r="${r}" fill="${n.color}" fill-opacity="${op}" stroke="${stroke}" stroke-width="${sw}" data-i="${i}" style="cursor:pointer" />`;
-    }
-    (lit ? nodesLit : nodesDim).push(html);
-  });
-
-  const edgeHtml = edgesDim.join("") + edgesLit.join("");
-  const nodeHtml = nodesDim.join("") + nodesLit.join("");
-
-  // Tooltip for hovered node
-  let tipHtml = "";
-  if (hoverId) {
-    const n = nodes.find(x => x.id === hoverId);
-    if (n) {
-      const tx = n.x * zoom + panX + 12;
-      const ty = n.y * zoom + panY - 8;
-      const label = n.type === "workflow"
-        ? `${n.label}  ·  ${n.model_count || 0} models`
-        : `${n.label}  ·  ${n.size_gb || 0} GB`;
-      const fam = `family: ${n.family}`;
-      tipHtml = `
-        <g transform="translate(${tx} ${ty})">
-          <rect x="0" y="-12" width="${Math.max(label.length, fam.length) * 6.5 + 12}" height="30" fill="#0e0b07" stroke="${n.color}" stroke-width="0.8" />
-          <text x="6" y="0" fill="${n.color}" font-family="var(--font)" font-size="11">${escHTML(label)}</text>
-          <text x="6" y="13" fill="var(--muted)" font-family="var(--font)" font-size="10">${escHTML(fam)}</text>
-        </g>`;
-    }
-  }
-
-  svg.innerHTML = g + edgeHtml + nodeHtml + "</g>" + tipHtml;
-}
-
-function bindGraphInteractions() {
-  const svg = document.getElementById("graphSvg");
-  let lastX = 0, lastY = 0;
-
-  svg.onmousedown = (e) => {
-    const i = e.target.dataset?.i;
-    if (i !== undefined) {
-      GRAPH_STATE.dragId = +i;
-      GRAPH_STATE.panDragging = false;
-    } else {
-      GRAPH_STATE.panDragging = true;
-    }
-    lastX = e.clientX; lastY = e.clientY;
-    svg.style.cursor = "grabbing";
-  };
-  svg.onmousemove = (e) => {
-    const rect = svg.getBoundingClientRect();
-    const mx = (e.clientX - rect.left - GRAPH_STATE.panX) / GRAPH_STATE.zoom;
-    const my = (e.clientY - rect.top - GRAPH_STATE.panY) / GRAPH_STATE.zoom;
-    if (GRAPH_STATE.dragId !== null) {
-      const n = GRAPH_STATE.nodes[GRAPH_STATE.dragId];
-      n.x = mx; n.y = my; n.vx = 0; n.vy = 0;
-      drawGraph();
-    } else if (GRAPH_STATE.panDragging) {
-      GRAPH_STATE.panX += e.clientX - lastX;
-      GRAPH_STATE.panY += e.clientY - lastY;
-      lastX = e.clientX; lastY = e.clientY;
-      drawGraph();
-    } else {
-      const i = e.target.dataset?.i;
-      const newHover = i !== undefined ? GRAPH_STATE.nodes[+i].id : null;
-      if (newHover !== GRAPH_STATE.hoverId) {
-        GRAPH_STATE.hoverId = newHover;
-        drawGraph();
-      }
-    }
-  };
-  svg.onmouseup = svg.onmouseleave = () => {
-    GRAPH_STATE.dragId = null;
-    GRAPH_STATE.panDragging = false;
-    svg.style.cursor = "grab";
-  };
-  svg.onwheel = (e) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    const rect = svg.getBoundingClientRect();
-    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
-    GRAPH_STATE.panX = mx - (mx - GRAPH_STATE.panX) * delta;
-    GRAPH_STATE.panY = my - (my - GRAPH_STATE.panY) * delta;
-    GRAPH_STATE.zoom *= delta;
-    GRAPH_STATE.zoom = Math.max(0.2, Math.min(5, GRAPH_STATE.zoom));
-    drawGraph();
-  };
-}
-
-// ── Upgrade suggestions ────────────────────────────────────────────────
-async function refreshUpgrades() {
-  const meta = document.getElementById("upgrades-meta");
-  const content = document.getElementById("upgradesContent");
-  try {
-    const data = await apiGet("/api/upgrades");
-    if (data.error) {
-      meta.textContent = data.error;
-      content.innerHTML = `<div class="empty">${escHTML(data.error)}</div>`;
-      return;
-    }
-    const { stats, by_workflow, groups } = data;
-    if (stats.workflows_with_upgrades === 0) {
-      meta.textContent = "all up to date";
-      content.innerHTML = `
-        <div class="empty">
-          no upgrades available — every workflow loads the most recent dated variant in your catalog.
-          ${groups.length ? `<br><span style="color:var(--muted); font-size:11px">scanned ${groups.length} version groups</span>` : ""}
-        </div>`;
-      return;
-    }
-    meta.textContent = `${stats.workflows_with_upgrades} workflow${stats.workflows_with_upgrades > 1 ? "s" : ""} can upgrade · ${stats.total_upgrade_pairs} model swap${stats.total_upgrade_pairs > 1 ? "s" : ""} · ${stats.groups} version group${stats.groups > 1 ? "s" : ""}`;
-
-    // Group entries by family for readability
-    const byFamily = {};
-    for (const [tid, ups] of Object.entries(by_workflow)) {
-      for (const u of ups) {
-        if (!byFamily[u.family]) byFamily[u.family] = {};
-        if (!byFamily[u.family][tid]) byFamily[u.family][tid] = [];
-        byFamily[u.family][tid].push(u);
-      }
-    }
-
-    const palette = (GRAPH_DATA && GRAPH_DATA.families) || {};
-    const familyColor = f => palette[f] || "var(--amber)";
-
-    const sectionsHtml = Object.entries(byFamily).map(([fam, wfs]) => {
-      const c = familyColor(fam);
-      const wfHtml = Object.entries(wfs).map(([tid, ups]) => `
+  const upgradesHtml = Object.keys(upgradesByWf).length === 0
+    ? `<div class="empty" style="margin-top:6px">no upgrades available — all workflows in this family already use the latest dated variants.</div>`
+    : Object.entries(upgradesByWf).map(([tid, ups]) => `
         <div class="upgrade-row">
           <div class="upgrade-row-head">
-            <span class="upgrade-tid" onclick="showDetails('${escHTML(tid)}')">${escHTML(tid)}</span>
+            <span class="upgrade-tid" onclick="closeModal();showDetails('${escHTML(tid)}')">${escHTML(tid)}</span>
           </div>
           ${ups.map(u => `
             <div class="upgrade-pair">
@@ -1829,39 +1600,32 @@ async function refreshUpgrades() {
               <div class="upgrade-reason">${escHTML(u.reason)}</div>
             </div>`).join("")}
         </div>`).join("");
-      return `
-        <div class="upgrade-family" style="border-left:3px solid ${c}">
-          <div class="upgrade-family-head" style="color:${c}">
-            ${escHTML(fam)} <span style="color:var(--muted); font-weight:400; font-size:10.5px">— ${Object.keys(wfs).length} workflow${Object.keys(wfs).length>1?"s":""}</span>
-          </div>
-          ${wfHtml}
-        </div>`;
-    }).join("");
 
-    content.innerHTML = sectionsHtml;
-  } catch (e) {
-    meta.textContent = "error";
-    content.innerHTML = `<div class="empty">error: ${escHTML(e.message)}</div>`;
-  }
+  const body = `
+    <div class="fam-detail">
+      <div>
+        <h4 style="color:${f.color}">models · ${f.models.length}</h4>
+        <div class="list">${modelsList}</div>
+      </div>
+      <div>
+        <h4 style="color:${f.color}">workflows · ${f.workflows.length}</h4>
+        <div class="list">${workflowsList}</div>
+      </div>
+      <div class="upgrades-block">
+        <h4 style="color:${f.color}">upgrades available · ${f.upgrade_count}</h4>
+        ${upgradesHtml}
+      </div>
+    </div>`;
+
+  openModal(`family · ${f.name}`, body);
 }
-
-// ── Filter pills (workflow section only) ───────────────────────────────
-document.querySelectorAll(".pill").forEach(p => {
-  p.onclick = () => {
-    document.querySelectorAll(".pill").forEach(x => x.classList.remove("active"));
-    p.classList.add("active");
-    WF_FILTER = p.dataset.tab;
-    rerenderWorkflows();
-  };
-});
 
 // ── Boot ────────────────────────────────────────────────────────────────
 async function boot() {
   if (!TOKEN) { promptForToken(); return; }
   await refresh();
   await rerenderCommands();
-  rerenderWorkflows();
-  refreshUpgrades();
+  loadFamilies();
   pollEvents();
 }
 boot();
