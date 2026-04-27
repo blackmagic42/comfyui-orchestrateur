@@ -231,12 +231,32 @@ else
     git -C "${NODES_DIR}/ComfyUI-Manager" pull --rebase 2>/dev/null || true
 fi
 
-# Notre extension comfyui-workflow-manager (si présente dans le repo source)
-WM_SRC="${ROOT_DIR}/ComfyUI/custom_nodes/comfyui-workflow-manager"
+# Notre extension comfyui-workflow-manager
+# 1. Si une source locale existe (dev workflow) → copie
+# 2. Sinon → clone depuis GitHub
 WM_DEST="${NODES_DIR}/comfyui-workflow-manager"
-if [[ -d "$WM_SRC" && ! -d "$WM_DEST" ]]; then
-    cp -r "$WM_SRC" "$WM_DEST"
-    ok "comfyui-workflow-manager copied"
+if [[ ! -d "$WM_DEST" ]]; then
+    WM_FOUND=0
+    for WM_SRC in \
+        "${ROOT_DIR}/comfyui-workflow-manager" \
+        "${ROOT_DIR}/ComfyUI/custom_nodes/comfyui-workflow-manager" \
+        "${HOME}/creation-ops/ComfyUI/custom_nodes/comfyui-workflow-manager" \
+        "${HOME}/creation-ops/comfyui-workflow-manager" \
+    ; do
+        if [[ -d "$WM_SRC" ]]; then
+            cp -r "$WM_SRC" "$WM_DEST"
+            ok "comfyui-workflow-manager copied from $WM_SRC"
+            WM_FOUND=1
+            break
+        fi
+    done
+    if [[ $WM_FOUND -eq 0 ]]; then
+        echo "  ⤓ Cloning comfyui-workflow-manager from GitHub..."
+        git clone https://github.com/blackmagic42/comfyui-workflow-manager.git "$WM_DEST"
+        ok "comfyui-workflow-manager cloned"
+    fi
+else
+    ok "comfyui-workflow-manager already present (skipping)"
 fi
 
 # Magie Noir (optionnel)

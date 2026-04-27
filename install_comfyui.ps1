@@ -76,14 +76,33 @@ if (-not (Test-Path "$nodesDir\ComfyUI-Manager")) {
     git clone https://github.com/Comfy-Org/ComfyUI-Manager.git "$nodesDir\ComfyUI-Manager"
 }
 
-# Notre extension workflow-manager — copie depuis le repo source
-$wmSrc = Join-Path $root "comfyui-workflow-manager"
-if (Test-Path $wmSrc) {
-    $wmDest = Join-Path $nodesDir "comfyui-workflow-manager"
-    if (-not (Test-Path $wmDest)) {
-        Copy-Item -Recurse $wmSrc $wmDest
-        Write-Host "  ✓ comfyui-workflow-manager linked"
+# Notre extension workflow-manager
+# 1. Si une source locale existe (dev workflow) → copie
+# 2. Sinon → clone depuis GitHub
+$wmDest = Join-Path $nodesDir "comfyui-workflow-manager"
+if (-not (Test-Path $wmDest)) {
+    $wmLocalSources = @(
+        (Join-Path $root "comfyui-workflow-manager"),
+        (Join-Path $root "ComfyUI\custom_nodes\comfyui-workflow-manager"),
+        "C:\Users\sshuser\creation-ops\ComfyUI\custom_nodes\comfyui-workflow-manager",
+        "C:\Users\sshuser\creation-ops\comfyui-workflow-manager"
+    )
+    $foundLocal = $false
+    foreach ($src in $wmLocalSources) {
+        if (Test-Path $src) {
+            Copy-Item -Recurse $src $wmDest
+            Write-Host "  ✓ comfyui-workflow-manager copied from $src"
+            $foundLocal = $true
+            break
+        }
     }
+    if (-not $foundLocal) {
+        Write-Host "  ⤓ Cloning comfyui-workflow-manager from GitHub..."
+        git clone https://github.com/blackmagic42/comfyui-workflow-manager.git $wmDest
+        Write-Host "  ✓ comfyui-workflow-manager cloned"
+    }
+} else {
+    Write-Host "  ✓ comfyui-workflow-manager already present (skipping)"
 }
 
 # Magie Noir (junction si dispo)
