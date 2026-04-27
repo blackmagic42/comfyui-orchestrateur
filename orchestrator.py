@@ -113,8 +113,9 @@ def launch_comfyui(install_path: Path = DEFAULT_COMFYUI_PATH,
     """Launch ComfyUI in background. Returns the launched process PID."""
     # Use the venv Python (defined in SUBPROCESS_PYTHON) so torch+CUDA are
     # picked up. SUBPROCESS_PYTHON resolves at call time, after it's been set.
+    # `-u` keeps stdout unbuffered so live logs reach the captured file.
     cmd = [
-        SUBPROCESS_PYTHON, str(install_path / "main.py"),
+        SUBPROCESS_PYTHON, "-u", str(install_path / "main.py"),
         "--listen", "0.0.0.0",
         "--port", str(port),
         "--disable-xformers",
@@ -602,7 +603,7 @@ COMMAND_WHITELIST = {
     "catalog_build": {
         "label": "📦 Build catalog",
         "description": "Construit le manifest (latest + biggest variant)",
-        "cmd": [SUBPROCESS_PYTHON, str(SCRIPTS_DIR / "comfyui_catalog.py"), "build"],
+        "cmd": [SUBPROCESS_PYTHON, "-u", str(SCRIPTS_DIR / "comfyui_catalog.py"), "build"],
         "params": [
             {"name": "budget",         "flag": "--budget",         "type": "int",
              "default": 700,           "label": "Budget (GB)"},
@@ -613,7 +614,7 @@ COMMAND_WHITELIST = {
     "catalog_sync": {
         "label": "🔄 Sync (fetch + rebuild)",
         "description": "pip install -U comfyui_workflow_templates puis rebuild du manifest. À lancer périodiquement pour récupérer les nouveaux workflows et modèles.",
-        "cmd": [SUBPROCESS_PYTHON, str(SCRIPTS_DIR / "comfyui_catalog.py"), "sync"],
+        "cmd": [SUBPROCESS_PYTHON, "-u", str(SCRIPTS_DIR / "comfyui_catalog.py"), "sync"],
         "params": [
             {"name": "budget",         "flag": "--budget",         "type": "int",
              "default": 700,           "label": "Budget (GB)"},
@@ -624,55 +625,55 @@ COMMAND_WHITELIST = {
     "catalog_cleanup": {
         "label": "🗑 Cleanup obsolete models",
         "description": "Supprime les modèles sur disque qui ne sont plus dans le manifest (récupère de l'espace après un rebuild)",
-        "cmd": [SUBPROCESS_PYTHON, str(SCRIPTS_DIR / "comfyui_catalog.py"), "cleanup", "--yes"],
+        "cmd": [SUBPROCESS_PYTHON, "-u", str(SCRIPTS_DIR / "comfyui_catalog.py"), "cleanup", "--yes"],
         "params": [],
     },
     "catalog_download": {
         "label": "📥 Download models",
         "description": "Télécharge les modèles du manifest via l'extension",
-        "cmd": [SUBPROCESS_PYTHON, str(SCRIPTS_DIR / "comfyui_catalog.py"), "download"],
+        "cmd": [SUBPROCESS_PYTHON, "-u", str(SCRIPTS_DIR / "comfyui_catalog.py"), "download"],
         "params": [],
     },
     "catalog_status": {
         "label": "📊 Catalog report",
         "description": "Affiche le rapport du manifest courant",
-        "cmd": [SUBPROCESS_PYTHON, str(SCRIPTS_DIR / "comfyui_catalog.py"), "report"],
+        "cmd": [SUBPROCESS_PYTHON, "-u", str(SCRIPTS_DIR / "comfyui_catalog.py"), "report"],
         "params": [],
     },
     "classify": {
         "label": "🏷️ Classify workflows",
         "description": "Classifie les 218 workflows en 10 phases × 19 catégories",
-        "cmd": [SUBPROCESS_PYTHON, str(SCRIPTS_DIR / "classify_workflows.py")],
+        "cmd": [SUBPROCESS_PYTHON, "-u", str(SCRIPTS_DIR / "classify_workflows.py")],
         "params": [],
     },
     "export_api": {
         "label": "🔄 Export workflows → API",
         "description": "Convertit les workflows UI en format API (pour /prompt)",
-        "cmd": [SUBPROCESS_PYTHON, str(SCRIPTS_DIR / "export_workflows_api.py")],
+        "cmd": [SUBPROCESS_PYTHON, "-u", str(SCRIPTS_DIR / "export_workflows_api.py")],
         "params": [],
     },
     "starters": {
         "label": "🌱 Generate starter images",
         "description": "Génère 14 images contextuelles par catégorie",
-        "cmd": [SUBPROCESS_PYTHON, str(SCRIPTS_DIR / "generate_starters.py")],
+        "cmd": [SUBPROCESS_PYTHON, "-u", str(SCRIPTS_DIR / "generate_starters.py")],
         "params": [],
     },
     "gated_check": {
         "label": "🔐 Check gated HF models",
         "description": "Identifie les modèles HuggingFace nécessitant licence",
-        "cmd": [SUBPROCESS_PYTHON, str(SCRIPTS_DIR / "check_gated_models.py")],
+        "cmd": [SUBPROCESS_PYTHON, "-u", str(SCRIPTS_DIR / "check_gated_models.py")],
         "params": [],
     },
     "install_workflows": {
         "label": "📁 Install workflows in ComfyUI",
         "description": "Copie les 218 workflows dans user/default/workflows/",
-        "cmd": [SUBPROCESS_PYTHON, str(SCRIPTS_DIR / "comfyui_catalog.py"), "install-workflows"],
+        "cmd": [SUBPROCESS_PYTHON, "-u", str(SCRIPTS_DIR / "comfyui_catalog.py"), "install-workflows"],
         "params": [],
     },
     "launch_comfyui": {
         "label": "🚀 Launch ComfyUI instance",
         "description": "Démarre une nouvelle instance sur le port donné",
-        "cmd": [SUBPROCESS_PYTHON, str(SCRIPTS_DIR / "orchestrator.py"), "launch"],
+        "cmd": [SUBPROCESS_PYTHON, "-u", str(SCRIPTS_DIR / "orchestrator.py"), "launch"],
         "params": [
             {"name": "port", "flag": "--port", "type": "int",
              "default": 8188, "label": "Port"},
@@ -714,28 +715,28 @@ COMMAND_WHITELIST = {
     "bundle_minimal": {
         "label": "📦 Bundle: Minimal (250 GB)",
         "description": "Catalogue minimal — text→image essentials only. Idéal pour première installation rapide ou stockage limité.",
-        "cmd": [SUBPROCESS_PYTHON, str(SCRIPTS_DIR / "comfyui_catalog.py"), "build",
+        "cmd": [SUBPROCESS_PYTHON, "-u", str(SCRIPTS_DIR / "comfyui_catalog.py"), "build",
                 "--budget", "250", "--max-age-years", "2"],
         "params": [],
     },
     "bundle_image": {
         "label": "🖼 Bundle: Image-focused (400 GB)",
         "description": "Image generation + edit complet (Flux, Qwen-Edit, HiDream, ControlNet) sans video.",
-        "cmd": [SUBPROCESS_PYTHON, str(SCRIPTS_DIR / "comfyui_catalog.py"), "build",
+        "cmd": [SUBPROCESS_PYTHON, "-u", str(SCRIPTS_DIR / "comfyui_catalog.py"), "build",
                 "--budget", "400", "--max-age-years", "2"],
         "params": [],
     },
     "bundle_standard": {
         "label": "🎬 Bundle: Standard (700 GB)",
         "description": "Recommandé : image + video latest (Wan2.2, LTX 2.3, Hunyuan Video 1.5).",
-        "cmd": [SUBPROCESS_PYTHON, str(SCRIPTS_DIR / "comfyui_catalog.py"), "build",
+        "cmd": [SUBPROCESS_PYTHON, "-u", str(SCRIPTS_DIR / "comfyui_catalog.py"), "build",
                 "--budget", "700", "--max-age-years", "2"],
         "params": [],
     },
     "bundle_full": {
         "label": "🎯 Bundle: Full catalog (1500 GB)",
         "description": "Toutes les latest versions sans contrainte budget — pour station haut de gamme.",
-        "cmd": [SUBPROCESS_PYTHON, str(SCRIPTS_DIR / "comfyui_catalog.py"), "build",
+        "cmd": [SUBPROCESS_PYTHON, "-u", str(SCRIPTS_DIR / "comfyui_catalog.py"), "build",
                 "--budget", "1500", "--max-age-years", "2"],
         "params": [],
     },
@@ -744,7 +745,7 @@ COMMAND_WHITELIST = {
     "apply_changes": {
         "label": "✨ Apply changes (build + download + cleanup)",
         "description": "Macro complète : rebuild manifest avec nouveau budget → télécharge les nouveaux modèles → supprime les obsolètes. À utiliser après un changement de bundle ou de budget.",
-        "cmd": [SUBPROCESS_PYTHON, str(SCRIPTS_DIR / "comfyui_catalog.py"), "apply"],
+        "cmd": [SUBPROCESS_PYTHON, "-u", str(SCRIPTS_DIR / "comfyui_catalog.py"), "apply"],
         "params": [
             {"name": "budget", "flag": "--budget", "type": "int",
              "default": 700, "label": "Budget (GB)"},

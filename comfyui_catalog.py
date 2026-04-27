@@ -492,8 +492,33 @@ def cmd_download(args):
         print("Aucune liste de téléchargement. Lance d'abord `build`.", file=sys.stderr)
         sys.exit(1)
 
+    # Precheck — ComfyUI must be running for the workflow-manager extension to
+    # accept POSTs. Without this, every item below would time out for 30 s
+    # before failing, and the user sees nothing for minutes.
+    print(f"Verifying ComfyUI is reachable at {args.api}...")
+    try:
+        with urllib.request.urlopen(f"{args.api}/queue", timeout=3) as resp:
+            resp.read(64)
+        print(f"  OK -- ComfyUI online")
+    except Exception as exc:
+        print()
+        print("=" * 70, file=sys.stderr)
+        print(f"ERREUR: ComfyUI n'est pas joignable a {args.api}", file=sys.stderr)
+        print(f"  details: {exc}", file=sys.stderr)
+        print(file=sys.stderr)
+        print("Le download a besoin de l'extension comfyui-workflow-manager,", file=sys.stderr)
+        print("qui n'est dispo que quand ComfyUI tourne.", file=sys.stderr)
+        print(file=sys.stderr)
+        print("Lance ComfyUI d'abord, par exemple via l'orchestrateur :", file=sys.stderr)
+        print("    POST /api/command  id=launch_comfyui", file=sys.stderr)
+        print("ou directement :", file=sys.stderr)
+        print(f"    cd <comfyui_path> && python main.py --port 8188", file=sys.stderr)
+        print("=" * 70, file=sys.stderr)
+        sys.exit(1)
+    print()
+
     items = json.loads(DOWNLOAD_LIST.read_text(encoding="utf-8"))
-    print(f"📥 Lancement de {len(items)} téléchargements via {args.api}/workflow-manager/download-model")
+    print(f"Lancement de {len(items)} telechargements via {args.api}/workflow-manager/download-model")
     print()
 
     enqueued = 0
