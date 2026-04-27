@@ -127,10 +127,15 @@ def launch_comfyui(install_path: Path = DEFAULT_COMFYUI_PATH,
     log_file = STATE_DIR / f"comfyui_{port}.log"
     log_handle = open(log_file, "w", encoding="utf-8")
     if os.name == "nt":
+        # CREATE_NO_WINDOW (0x08000000) — no flickering console. Combined with
+        # CREATE_NEW_PROCESS_GROUP (0x00000200) so Ctrl+C in the parent doesn't
+        # propagate to ComfyUI; the orchestrator can still kill it via PID.
+        # NB: do not use DETACHED_PROCESS here — it conflicts with
+        # CREATE_NO_WINDOW and can spawn a console on some Windows versions.
         proc = subprocess.Popen(
             cmd, cwd=str(install_path),
             stdout=log_handle, stderr=subprocess.STDOUT,
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+            creationflags=0x08000000 | subprocess.CREATE_NEW_PROCESS_GROUP,
         )
     else:
         proc = subprocess.Popen(
@@ -1260,12 +1265,21 @@ def run_command_async(cmd_id: str, cmd: list[str], extra_args: list[str]):
     log_handle = open(log_file, "w", encoding="utf-8")
     log_event("info", "command", f"started: {cmd_id}", run_id=cmd_id, cmd=" ".join(full_cmd))
     try:
-        proc = subprocess.Popen(
-            full_cmd,
+        # CRITICAL on Windows: CREATE_NO_WINDOW (0x08000000) prevents Python
+        # console apps from popping a flickering window. Without it, every
+        # spawned python.exe gets its own console, and if the user accidentally
+        # closes that window the subprocess dies with STATUS_CONTROL_C_EXIT
+        # (rc=3221225786) — exactly what the user was seeing. Stdout is still
+        # captured to log_handle, so progress shows up in the dashboard's
+        # live event stream regardless.
+        popen_kwargs = dict(
             stdout=log_handle, stderr=subprocess.STDOUT,
             cwd=str(Path(__file__).parent.parent),
             text=True, encoding="utf-8",
         )
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+        proc = subprocess.Popen(full_cmd, **popen_kwargs)
         with COMMAND_LOCK:
             COMMAND_PROCESSES[cmd_id] = {
                 "pid": proc.pid, "log": str(log_file),
