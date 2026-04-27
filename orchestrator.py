@@ -741,29 +741,79 @@ def get_events_since(since_id: int = 0, limit: int = 200) -> list[dict]:
 
 
 # ── Model ↔ Workflow graph ──────────────────────────────────────────────
-# Family palette — amber-friendly with distinct hues for each model space.
-# Colors picked to read on the CRT amber background (mid saturation).
+# CURATED family map — collapses fine-grained manifest families (flux_dev,
+# flux2_klein, flux_redux, …) into a small set of meaningful canonical
+# families. Lets the user see "flux" as one cluster instead of 7 fragments.
+# Manifest family → canonical family.
+CURATED_FAMILY_MAP = {
+    # Flux variants — all collapse to one
+    "flux_dev":          "flux",
+    "flux2_main":        "flux",
+    "flux2_klein":       "flux",
+    "flux_controlnet":   "flux",
+    "flux_fill":         "flux",
+    "flux_redux":        "flux",
+    "flux_uso":          "flux",
+
+    # Qwen variants
+    "qwen_image":        "qwen",
+    "qwen_image_edit":   "qwen",
+    "qwen_text_encoder": "qwen",
+
+    # Hunyuan variants
+    "hunyuan_video":     "hunyuan",
+    "hunyuan3d":         "hunyuan",
+
+    # SD variants
+    "sd3_5":             "sd3",
+
+    # Audio
+    "audio_ace":         "audio",
+
+    # Aux / shared utilities
+    "aux_text_encoder":  "aux",
+    "aux_upscaler":      "aux",
+}
+
+# Main vs aux: when a workflow uses several families, the *primary* family
+# (used for colour-coding the workflow node) prefers main families over aux.
+MAIN_FAMILIES = {
+    "flux", "qwen", "sdxl", "sd3", "sd1.5",
+    "wan_video", "hunyuan", "ltx_video", "z_image", "kandinsky",
+    "chroma", "lumina", "anima", "omnigen", "ovis", "lotus",
+    "ernie", "hidream_i1", "audio",
+}
+
+# Family palette — amber-friendly with distinct hues for each canonical
+# family. Picked to read against the CRT amber-on-black background.
 FAMILY_COLORS = {
-    "flux":     "#88b6ff",  # blue
-    "flux2":    "#5b8dff",  # darker blue
-    "sdxl":     "#7ad67a",  # green
-    "sd3":      "#a3e635",  # lime
-    "sd15":     "#bef264",  # pale lime
-    "qwen":     "#f59e0b",  # warm amber
-    "wan":      "#c084fc",  # violet
-    "z_image":  "#ff9166",  # coral
-    "kandinsky":"#ff79c6",  # pink
-    "ltx":      "#22d3ee",  # cyan
-    "hunyuan":  "#fbbf24",  # gold
-    "longcat":  "#fb923c",  # orange
-    "newbieimage": "#facc15",  # yellow
-    "controlnet": "#94a3b8",  # slate (utility)
-    "vae":      "#cbd5e1",   # light slate (utility)
-    "clip":     "#a8a29e",   # warm gray (utility)
-    "upscale":  "#71717a",   # zinc (utility)
-    "lora":     "#ddd6fe",   # lavender (utility)
+    "flux":         "#88b6ff",  # blue
+    "qwen":         "#f59e0b",  # warm amber
+    "sdxl":         "#7ad67a",  # green
+    "sd3":          "#a3e635",  # lime
+    "sd1.5":        "#bef264",  # pale lime
+    "wan_video":    "#c084fc",  # violet
+    "z_image":      "#ff9166",  # coral
+    "kandinsky":    "#ff79c6",  # pink
+    "ltx_video":    "#22d3ee",  # cyan
+    "hunyuan":      "#fbbf24",  # gold
+    "chroma":       "#fcd34d",  # straw
+    "lumina":       "#a78bfa",  # mauve
+    "anima":        "#f472b6",  # rose
+    "omnigen":      "#34d399",  # mint
+    "ovis":         "#67e8f9",  # sky
+    "lotus":        "#fb923c",  # orange
+    "ernie":        "#facc15",  # yellow
+    "hidream_i1":   "#fda4af",  # blush
+    "audio":        "#94a3b8",  # slate
+    "aux":          "#9ca3af",  # gray (shared utility)
 }
 DEFAULT_FAMILY_COLOR = "#b8a57a"  # text-dim amber
+
+def curated_family(raw: str) -> str:
+    """Map a raw manifest family to a curated canonical family."""
+    raw = (raw or "unknown").lower()
+    return CURATED_FAMILY_MAP.get(raw, raw)
 
 
 def family_color(family: str) -> str:
@@ -805,7 +855,10 @@ def compute_model_graph() -> dict:
 
     for m in selected:
         fname = m.get("name") or "?"
-        family = (m.get("family") or "unknown").lower()
+        # Use the curated canonical family — collapses flux_dev/flux2_klein/etc.
+        # into a single "flux" cluster, etc.
+        raw_family = (m.get("family") or "unknown").lower()
+        family = curated_family(raw_family)
         families_seen.add(family)
         size_gb = round((m.get("size") or 0) / 1024**3, 2)
         mid = f"model:{fname}"
@@ -814,6 +867,7 @@ def compute_model_graph() -> dict:
             "type": "model",
             "label": fname,
             "family": family,
+            "raw_family": raw_family,           # keep the fine-grained tag
             "color": family_color(family),
             "size_gb": size_gb,
             "directory": m.get("directory") or "",
@@ -827,18 +881,17 @@ def compute_model_graph() -> dict:
                     "id": wid,
                     "type": "workflow",
                     "label": tid,
-                    "family": family,            # primary family (overridden below)
+                    "family": family,
                     "color": family_color(family),
                     "model_count": 0,
                 }
-            else:
-                # Workflow uses multiple model families — keep the most-frequent one
-                # as primary. Tracking via a tally.
-                pass
             nodes_workflow[wid]["model_count"] += 1
             edges.append({"source": wid, "target": mid})
 
-    # Re-assign each workflow's primary family to the most-used family
+    # Re-assign each workflow's primary family. Strategy:
+    #   1. Tally families used by the workflow's models
+    #   2. Prefer MAIN families over aux/utility ones
+    #   3. Within the same tier, pick the most-used family
     workflow_family_tally: dict[str, dict[str, int]] = {}
     for e in edges:
         wf = e["source"]; mid = e["target"]
@@ -846,7 +899,10 @@ def compute_model_graph() -> dict:
         workflow_family_tally.setdefault(wf, {}).setdefault(fam, 0)
         workflow_family_tally[wf][fam] += 1
     for wid, tally in workflow_family_tally.items():
-        primary = max(tally.items(), key=lambda kv: kv[1])[0]
+        # Split into main vs other; pick from main if any
+        main_tally = {f: c for f, c in tally.items() if f in MAIN_FAMILIES}
+        chosen = main_tally if main_tally else tally
+        primary = max(chosen.items(), key=lambda kv: kv[1])[0]
         nodes_workflow[wid]["family"] = primary
         nodes_workflow[wid]["color"] = family_color(primary)
 

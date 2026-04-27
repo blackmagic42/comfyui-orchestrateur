@@ -35,18 +35,24 @@ Everything is **stdlib Python + bash + PowerShell**. No `pip install` for the or
 
 ## Quick start
 
-### 1. Install the orchestrator (the only manual step)
+### 1. Run the orchestrator
 
 ```bash
 git clone https://github.com/blackmagic42/comfyui-orchestrateur.git
 cd comfyui-orchestrateur
-python setup.py --install
+python orchestrator.py serve --port 9100
 ```
 
-That's it. `setup.py` :
-- creates `~/.comfyui-orchestrator/` for state (logs, pid, config)
-- spawns `orchestrator.py serve --port 9100` as a detached background process
-- opens `http://127.0.0.1:9100/dashboard` in your browser
+Opens the dashboard at `http://127.0.0.1:9100/dashboard`. Keep the terminal
+open — every command and job logs to stdout in real time, so you see exactly
+what the control tower is doing.
+
+> Prefer to run it as a detached background service instead?
+> Use `python setup.py --install`. It spawns the orchestrator with logs going
+> to `~/.comfyui-orchestrator/orchestrator.log` and gives you `setup.py
+> --start / --stop / --logs / --open / --status` for lifecycle. Convenient
+> for "fire and forget", less convenient when you actually want to see what
+> the orchestrator is doing live.
 
 ### 2. From the dashboard, deploy ComfyUI
 

@@ -679,11 +679,14 @@
             <span class="meta" id="graph-meta">click to expand</span>
           </h2>
           <div id="graphContent" style="display:none">
-            <div id="graphLegend" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px"></div>
-            <div id="graphInfo" style="font-size:11px; color:var(--muted); margin-bottom:6px">
-              workflows (squares) connected to the models (circles) they load. drag to pan, wheel to zoom, hover for label.
+            <div style="font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px">
+              filter by family — click to isolate, click again to clear
             </div>
-            <svg id="graphSvg" style="width:100%; height:560px; background:rgba(0,0,0,0.35); border:1px solid var(--line); cursor:grab"></svg>
+            <div id="graphLegend" style="display:flex; flex-wrap:wrap; gap:5px; margin-bottom:10px"></div>
+            <div id="graphInfo" style="font-size:11px; color:var(--muted); margin-bottom:6px">
+              workflows = squares · models = circles · drag a node to move it · drag empty space to pan · wheel to zoom · hover for label
+            </div>
+            <svg id="graphSvg" style="width:100%; height:640px; background:rgba(0,0,0,0.45); border:1px solid var(--line); cursor:grab; display:block"></svg>
           </div>
         </section>
 
@@ -1372,6 +1375,7 @@ const GRAPH_STATE = {
   hoverId: null,
   dragId: null,
   panDragging: false,
+  filterFamily: "",   // "" = show all; otherwise only this family + its neighbours
 };
 async function toggleGraph() {
   const c = document.getElementById("graphContent");
@@ -1410,9 +1414,34 @@ async function toggleGraph() {
 }
 function renderLegend(families) {
   const legend = document.getElementById("graphLegend");
-  legend.innerHTML = Object.entries(families).map(([f, c]) => `
-    <span style="border:1px solid ${c}; color:${c}; background:${c}1a; padding:2px 8px; font-size:10.5px; letter-spacing:0.4px">${escHTML(f)}</span>
-  `).join("");
+  // Count nodes per family for the badge
+  const counts = {};
+  for (const n of (GRAPH_DATA?.nodes || [])) {
+    counts[n.family] = (counts[n.family] || 0) + 1;
+  }
+  const allActive = !GRAPH_STATE.filterFamily;
+  const items = [
+    `<button class="fam-pill ${allActive ? 'active' : ''}" data-family="" style="${allActive
+      ? 'border:1px solid var(--ok); color:var(--ok); background:rgba(122,214,122,0.12)'
+      : 'border:1px solid var(--line); color:var(--text-dim); background:transparent'}; padding:2px 9px; font-size:10.5px; letter-spacing:0.4px; cursor:pointer; font-family:var(--font)"
+      onclick="applyGraphFilter('')">all (${GRAPH_DATA?.nodes?.length || 0})</button>`
+  ];
+  for (const [f, c] of Object.entries(families)) {
+    const active = GRAPH_STATE.filterFamily === f;
+    const n = counts[f] || 0;
+    items.push(`<button class="fam-pill ${active ? 'active' : ''}" data-family="${escHTML(f)}"
+      style="border:1px solid ${active ? c : 'transparent'}; outline:1px solid ${c}; color:${c}; background:${c}${active ? '33' : '1a'}; padding:2px 9px; font-size:10.5px; letter-spacing:0.4px; cursor:pointer; font-family:var(--font); ${active ? 'font-weight:600' : ''}"
+      onclick="applyGraphFilter('${escHTML(f)}')">${escHTML(f)} <span style="opacity:0.7">${n}</span></button>`);
+  }
+  legend.innerHTML = items.join("");
+}
+
+function applyGraphFilter(family) {
+  // Toggle off if clicking the active filter
+  if (GRAPH_STATE.filterFamily === family) family = "";
+  GRAPH_STATE.filterFamily = family;
+  renderLegend(GRAPH_DATA.families);
+  drawGraph();
 }
 function initGraph(data) {
   const svg = document.getElementById("graphSvg");
@@ -1546,32 +1575,66 @@ function runSimulation(iterations) {
 }
 
 function drawGraph() {
-  const { nodes, edges, hoverId, zoom, panX, panY } = GRAPH_STATE;
+  const { nodes, edges, hoverId, zoom, panX, panY, filterFamily } = GRAPH_STATE;
   const svg = document.getElementById("graphSvg");
 
   // Final defensive pass — nothing reaches the SVG with NaN/Infinity coords
   const safe = v => (Number.isFinite(v) ? v : 0);
 
-  // Edges below, nodes above. <g> for transform (zoom + pan).
-  const g = `<g transform="translate(${panX} ${panY}) scale(${zoom})">`;
-  const edgeHtml = edges.map(e => {
-    const a = nodes[e.source], b = nodes[e.target];
-    const isHover = (a.id === hoverId || b.id === hoverId);
-    const stroke = isHover ? a.color : "rgba(245,163,11,0.10)";
-    const w = isHover ? 1.4 : 0.5;
-    return `<line x1="${safe(a.x)}" y1="${safe(a.y)}" x2="${safe(b.x)}" y2="${safe(b.y)}" stroke="${stroke}" stroke-width="${w}" />`;
-  }).join("");
-
-  const nodeHtml = nodes.map((n, i) => {
-    const isHover = n.id === hoverId;
-    const r = n.radius * (isHover ? 1.6 : 1);
-    const x = safe(n.x), y = safe(n.y);
-    if (n.type === "workflow") {
-      return `<rect x="${x - r}" y="${y - r}" width="${r*2}" height="${r*2}" fill="${n.color}" stroke="${isHover ? '#fff' : 'rgba(0,0,0,0.4)'}" stroke-width="${isHover ? 1 : 0.5}" data-i="${i}" style="cursor:pointer" />`;
-    } else {
-      return `<circle cx="${x}" cy="${y}" r="${r}" fill="${n.color}" stroke="${isHover ? '#fff' : 'rgba(0,0,0,0.4)'}" stroke-width="${isHover ? 1 : 0.5}" data-i="${i}" style="cursor:pointer" />`;
+  // Filter logic: when a family is selected, "highlighted" = nodes of that
+  // family + their direct neighbours; everything else is dimmed (not removed)
+  // so the user keeps spatial context.
+  const highlighted = new Set();
+  if (filterFamily) {
+    for (const n of nodes) if (n.family === filterFamily) highlighted.add(n.id);
+    // Add direct neighbours
+    for (const e of edges) {
+      const a = nodes[e.source], b = nodes[e.target];
+      if (highlighted.has(a.id)) highlighted.add(b.id);
+      if (highlighted.has(b.id)) highlighted.add(a.id);
     }
-  }).join("");
+  }
+  const isLit = (n) => !filterFamily || highlighted.has(n.id);
+
+  const g = `<g transform="translate(${panX} ${panY}) scale(${zoom})">`;
+
+  // Edges below — render dimmed first, lit second so lit ones overdraw
+  const edgesDim = [], edgesLit = [];
+  for (const e of edges) {
+    const a = nodes[e.source], b = nodes[e.target];
+    const litEdge = isLit(a) && isLit(b);
+    const isHover = (a.id === hoverId || b.id === hoverId);
+    let stroke, width;
+    if (isHover) { stroke = a.color; width = 1.6; }
+    else if (filterFamily && !litEdge) { stroke = "rgba(245,163,11,0.04)"; width = 0.4; }
+    else if (filterFamily && litEdge)   { stroke = a.color + "88"; width = 1.0; }
+    else                                 { stroke = "rgba(245,163,11,0.18)"; width = 0.6; }
+    const html = `<line x1="${safe(a.x)}" y1="${safe(a.y)}" x2="${safe(b.x)}" y2="${safe(b.y)}" stroke="${stroke}" stroke-width="${width}" />`;
+    (litEdge || !filterFamily ? edgesLit : edgesDim).push(html);
+  }
+
+  // Nodes — bigger radii (5/7 instead of 4/5), dim non-highlighted to ~30%
+  const nodesDim = [], nodesLit = [];
+  nodes.forEach((n, i) => {
+    const isHover = n.id === hoverId;
+    const lit = isLit(n);
+    const baseR = n.type === "workflow" ? 5 : 7;
+    const r = baseR * (isHover ? 1.7 : 1);
+    const x = safe(n.x), y = safe(n.y);
+    const op = lit ? 1 : 0.18;
+    const stroke = isHover ? "#fff" : (lit ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.3)");
+    const sw = isHover ? 1.5 : (lit ? 0.8 : 0.4);
+    let html;
+    if (n.type === "workflow") {
+      html = `<rect x="${x - r}" y="${y - r}" width="${r*2}" height="${r*2}" fill="${n.color}" fill-opacity="${op}" stroke="${stroke}" stroke-width="${sw}" data-i="${i}" style="cursor:pointer" />`;
+    } else {
+      html = `<circle cx="${x}" cy="${y}" r="${r}" fill="${n.color}" fill-opacity="${op}" stroke="${stroke}" stroke-width="${sw}" data-i="${i}" style="cursor:pointer" />`;
+    }
+    (lit ? nodesLit : nodesDim).push(html);
+  });
+
+  const edgeHtml = edgesDim.join("") + edgesLit.join("");
+  const nodeHtml = nodesDim.join("") + nodesLit.join("");
 
   // Tooltip for hovered node
   let tipHtml = "";
