@@ -36,7 +36,7 @@ SKIP_WORKFLOWS=0
 NO_MAGIE_NOIR=0
 NO_ORCHESTRATOR=0
 ORCHESTRATOR_PORT=9000
-CUDA_VERSION="nightly/cu132"   # nightly cu132 — required for RTX 5090 / Blackwell sm_120
+CUDA_VERSION="cu130"           # stable cu130 — supports RTX 5090 / Blackwell. Override with --cuda-version nightly/cu132 for bleeding edge.
 SHARED_MODELS=""
 IS_PRIMARY=0
 
@@ -204,21 +204,25 @@ fi
 # Re-target $PYTHON to use the venv for the rest of the install
 PYTHON="$VENV_PY"
 
-# ── 4. PyTorch nightly + dépendances ComfyUI ────────────────────────────────
-step "4/10" "PyTorch nightly cu132 + dépendances ComfyUI"
+# ── 4. PyTorch + dépendances ComfyUI ────────────────────────────────────────
+# CUDA_VERSION can be a stable channel ("cu130") or a nightly path ("nightly/cu132").
+# Detect nightly to add --pre.
+step "4/10" "PyTorch (${CUDA_VERSION}) + dépendances ComfyUI"
 $PYTHON -m pip install --upgrade pip --quiet
+
+PIP_PRE=""
+[[ "$CUDA_VERSION" == nightly/* ]] && PIP_PRE="--pre"
 
 if [[ "$OS" == "mac" ]]; then
     # mac → MPS, no CUDA
     $PYTHON -m pip install torch torchvision torchaudio --quiet
 else
     # CRITICAL: --index-url (not --extra-index-url) so pip won't silently
-    # pick PyPI's CPU-only wheels when a matching nightly wheel can't be found.
-    # --pre lets pip pick pre-release/nightly builds.
-    $PYTHON -m pip install --pre torch torchvision torchaudio \
+    # pick PyPI's CPU-only wheels when a matching wheel can't be found.
+    $PYTHON -m pip install $PIP_PRE torch torchvision torchaudio \
         --index-url "https://download.pytorch.org/whl/${CUDA_VERSION}" --quiet
 fi
-ok "torch installed (nightly cu132)"
+ok "torch installed (${CUDA_VERSION})"
 
 $PYTHON -m pip install -r "${INSTALL_PATH}/requirements.txt" --quiet
 ok "ComfyUI requirements installed"

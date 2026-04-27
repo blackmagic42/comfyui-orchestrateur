@@ -11,10 +11,12 @@
 
 param(
     [string]$InstallPath = "C:\Users\$env:USERNAME\creation-ops\ComfyUI",
-    # PyTorch nightly with cu132 — required for RTX 5090 / Blackwell (sm_120).
+    # PyTorch stable cu130 — supports RTX 5090 / Blackwell.
     # Note: this MUST be --index-url (not --extra-index-url) so pip doesn't
     # silently fall back to PyPI's CPU-only wheels.
-    [string]$CudaIndex = "https://download.pytorch.org/whl/nightly/cu132",
+    # Use -UseNightly switch to opt into nightly cu132 (bleeding edge).
+    [string]$CudaIndex = "https://download.pytorch.org/whl/cu130",
+    [switch]$UseNightly,            # if set, override CudaIndex to nightly/cu132
     [switch]$SkipModels,
     [switch]$SkipWorkflows,
     [switch]$NoVenv,                # disable venv creation if you want to use the system Python
@@ -71,13 +73,19 @@ if ($NoVenv) {
     $py = $venvPy
 }
 
-# ── 4. PyTorch (nightly cu132 for Blackwell) + ComfyUI requirements ────────
-Write-Host "[4/8] Installing PyTorch nightly + ComfyUI requirements..."
+# ── 4. PyTorch (cu130 stable, or nightly cu132 with -UseNightly) + ComfyUI ─
+if ($UseNightly) {
+    $CudaIndex = "https://download.pytorch.org/whl/nightly/cu132"
+    Write-Host "[4/8] Installing PyTorch nightly cu132 + ComfyUI requirements..."
+} else {
+    Write-Host "[4/8] Installing PyTorch cu130 stable + ComfyUI requirements..."
+}
 & $py -m pip install --upgrade pip
 # CRITICAL: --index-url (not --extra-index-url) so pip won't silently pick
-# PyPI's CPU-only wheels when a matching nightly wheel can't be found.
-# --pre lets pip pick pre-release/nightly builds.
-& $py -m pip install --pre torch torchvision torchaudio --index-url $CudaIndex
+# PyPI's CPU-only wheels when a matching wheel can't be found on the index.
+$pipArgs = @("torch", "torchvision", "torchaudio", "--index-url", $CudaIndex)
+if ($UseNightly) { $pipArgs = @("--pre") + $pipArgs }
+& $py -m pip install @pipArgs
 & $py -m pip install -r "$InstallPath\requirements.txt"
 
 # Sage attention + Triton for Windows (Blackwell)
