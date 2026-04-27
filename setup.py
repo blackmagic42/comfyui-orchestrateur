@@ -57,7 +57,10 @@ RUN_DIR     = Path.home() / ".comfyui-orchestrator"
 PID_FILE    = RUN_DIR / "orchestrator.pid"
 LOG_FILE    = RUN_DIR / "orchestrator.log"
 CONFIG_FILE = RUN_DIR / "config.json"
-DEFAULT_PORT = 9000
+# 9000 was the historical default, but it clashes with VS Code's Node service
+# port and other common dev tools. 9100 is well outside the typical usage
+# bands (8000-8999 servers, 9000-9099 dev tools / debug ports).
+DEFAULT_PORT = 9100
 
 IS_WIN   = os.name == "nt"
 IS_LINUX = sys.platform.startswith("linux")
@@ -136,11 +139,56 @@ def save_config(cfg: dict) -> None:
     CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
 def is_port_open(port: int, host: str = "127.0.0.1", timeout: float = 0.5) -> bool:
+    """TCP-level: is *something* listening on this port?"""
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(timeout)
     try: return s.connect_ex((host, port)) == 0
     except Exception: return False
     finally: s.close()
+
+
+def is_orchestrator_responding(port: int, host: str = "127.0.0.1", timeout: float = 1.5) -> bool:
+    """HTTP-level: does our orchestrator actually answer on this port?
+
+    Distinguishes "the port is free" from "the port is taken by something else"
+    (VS Code, another dev tool, …) — both look the same at TCP level but only
+    the orchestrator answers `/api/instances`.
+    """
+    if not is_port_open(port, host, timeout=0.5):
+        return False
+    try:
+        import urllib.request, urllib.error
+        req = urllib.request.Request(f"http://{host}:{port}/api/instances",
+                                      headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status == 200 and "application/json" in (r.headers.get("Content-Type") or "")
+    except Exception:
+        return False
+
+
+def find_free_port(start: int, max_attempts: int = 50) -> int | None:
+    """Return the first port in [start, start+max_attempts) where nothing listens."""
+    for p in range(start, start + max_attempts):
+        if not is_port_open(p):
+            return p
+    return None
+
+
+def identify_port_user(port: int) -> str | None:
+    """Return a short hint about what's listening on `port` (Windows only)."""
+    if not IS_WIN: return None
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"(Get-NetTCPConnection -LocalPort {port} -State Listen "
+             f"-ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty OwningProcess) | "
+             f"ForEach-Object {{ (Get-Process -Id $_ -ErrorAction SilentlyContinue).ProcessName }}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        name = (r.stdout or "").strip()
+        return name or None
+    except Exception:
+        return None
 
 def pid_alive(pid: int) -> bool:
     if not pid: return False
@@ -194,14 +242,36 @@ def mode_install() -> None:
 
     cfg = load_config()
     port = ask_int("Port pour le dashboard", cfg.get("port", DEFAULT_PORT))
+
+    # Distinguish "our orchestrator already there" from "some other tool".
+    # Don't kill processes blindly — VS Code uses 9000, Chrome remote debug
+    # uses 9222, and so on. We only stop our own pid-tracked process.
     if is_port_open(port):
-        warn(f"Le port {port} est déjà utilisé.")
-        if not confirm("Arrêter ce qui tourne dessus avant de lancer ?", False):
-            return
-        # try gentle stop via PID file
-        existing_pid = get_running_pid()
-        if existing_pid:
-            stop_orchestrator()
+        if is_orchestrator_responding(port):
+            warn(f"Un orchestrateur tourne déjà sur le port {port} — il répond à /api/instances.")
+            existing_pid = get_running_pid()
+            if existing_pid:
+                if not confirm("Le redémarrer ?", False):
+                    print()
+                    print(f"  Dashboard : {BOLD}http://127.0.0.1:{port}/dashboard{RESET}")
+                    return
+                stop_orchestrator()
+            else:
+                hint("Pas de PID enregistré — l'orchestrateur a été lancé hors setup.py.")
+                hint("Arrête-le manuellement, ou choisis un autre port.")
+                return
+        else:
+            who = identify_port_user(port)
+            tag = f" (probablement {who})" if who else ""
+            warn(f"Le port {port} est occupé par autre chose{tag} — pas par l'orchestrateur.")
+            free = find_free_port(port + 1)
+            if free is None:
+                err("Aucun port libre trouvé dans la plage. Choisis-en un manuellement.")
+                return
+            port = ask_int(f"Quel port utiliser à la place", free)
+            if is_port_open(port):
+                err(f"Port {port} aussi occupé. Abandon.")
+                return
 
     cfg["port"] = port
     save_config(cfg)
@@ -274,14 +344,22 @@ def start_orchestrator(port: int | None = None) -> bool:
     save_config({**cfg, "port": port})
     ok(f"Orchestrateur lancé · PID {proc.pid} · log : {LOG_FILE}")
 
-    # Wait briefly for the port to come up so the user gets quick feedback
-    for _ in range(20):
+    # Wait briefly for the orchestrator to actually answer HTTP — not just for
+    # the TCP port to be open (something else might already be listening).
+    for i in range(30):
         time.sleep(0.5)
-        if is_port_open(port):
-            ok(f"Port {port} répond — http://127.0.0.1:{port}/dashboard")
+        # If the spawned process died early (e.g. port bind failed), fail loudly
+        if proc.poll() is not None:
+            err(f"Le process orchestrateur s'est arrêté (exit {proc.returncode}).")
+            err(f"Voir : {LOG_FILE}")
+            if PID_FILE.exists(): PID_FILE.unlink()
+            return False
+        if is_orchestrator_responding(port):
+            ok(f"Orchestrateur répond — http://127.0.0.1:{port}/dashboard")
             return True
-    warn(f"Port {port} ne répond pas encore (boot en cours, voir le log).")
-    return True
+    warn(f"Le port {port} ne répond pas en HTTP après 15 s.")
+    warn(f"Le process tourne (PID {proc.pid}) mais ne sert pas. Voir : {LOG_FILE}")
+    return False
 
 
 def stop_orchestrator() -> bool:
