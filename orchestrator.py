@@ -740,6 +740,194 @@ def get_events_since(since_id: int = 0, limit: int = 200) -> list[dict]:
         return [e for e in EVENT_LOG if e["id"] > since_id][-limit:]
 
 
+# ── Model ↔ Workflow graph ──────────────────────────────────────────────
+# Family palette — amber-friendly with distinct hues for each model space.
+# Colors picked to read on the CRT amber background (mid saturation).
+FAMILY_COLORS = {
+    "flux":     "#88b6ff",  # blue
+    "flux2":    "#5b8dff",  # darker blue
+    "sdxl":     "#7ad67a",  # green
+    "sd3":      "#a3e635",  # lime
+    "sd15":     "#bef264",  # pale lime
+    "qwen":     "#f59e0b",  # warm amber
+    "wan":      "#c084fc",  # violet
+    "z_image":  "#ff9166",  # coral
+    "kandinsky":"#ff79c6",  # pink
+    "ltx":      "#22d3ee",  # cyan
+    "hunyuan":  "#fbbf24",  # gold
+    "longcat":  "#fb923c",  # orange
+    "newbieimage": "#facc15",  # yellow
+    "controlnet": "#94a3b8",  # slate (utility)
+    "vae":      "#cbd5e1",   # light slate (utility)
+    "clip":     "#a8a29e",   # warm gray (utility)
+    "upscale":  "#71717a",   # zinc (utility)
+    "lora":     "#ddd6fe",   # lavender (utility)
+}
+DEFAULT_FAMILY_COLOR = "#b8a57a"  # text-dim amber
+
+
+def family_color(family: str) -> str:
+    """Pick a colour for an unknown family by hashing it into the palette."""
+    if not family: return DEFAULT_FAMILY_COLOR
+    if family in FAMILY_COLORS: return FAMILY_COLORS[family]
+    # Stable hash → pick from a fallback palette
+    fallback = ["#67e8f9", "#fda4af", "#fde047", "#86efac", "#fcd34d",
+                "#a5f3fc", "#fdba74", "#d8b4fe", "#bef264", "#67e8f9"]
+    h = sum(ord(c) for c in family)
+    return fallback[h % len(fallback)]
+
+
+def compute_model_graph() -> dict:
+    """Build a workflow ↔ model bipartite graph from the catalog manifest.
+
+    Returns:
+      {
+        "nodes": [{id, type, label, family, color, ...}],
+        "edges": [{source, target}],
+        "families": {family_name: hex_color},
+        "stats":   {workflows, models, edges, families}
+      }
+    """
+    manifest_path = STATE_DIR / "manifest.json"
+    if not manifest_path.exists():
+        return {"error": "manifest not built yet — run catalog_build", "nodes": [], "edges": [], "families": {}, "stats": {}}
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {"error": f"manifest read failed: {exc}", "nodes": [], "edges": [], "families": {}, "stats": {}}
+
+    selected = manifest.get("selected_models") or []
+    nodes_workflow: dict[str, dict] = {}
+    nodes_model: dict[str, dict] = {}
+    edges: list[dict] = []
+    families_seen: set[str] = set()
+
+    for m in selected:
+        fname = m.get("name") or "?"
+        family = (m.get("family") or "unknown").lower()
+        families_seen.add(family)
+        size_gb = round((m.get("size") or 0) / 1024**3, 2)
+        mid = f"model:{fname}"
+        nodes_model[mid] = {
+            "id": mid,
+            "type": "model",
+            "label": fname,
+            "family": family,
+            "color": family_color(family),
+            "size_gb": size_gb,
+            "directory": m.get("directory") or "",
+            "version_label": m.get("version_label") or "",
+            "url": m.get("url") or "",
+        }
+        for tid in (m.get("used_in") or []):
+            wid = f"wf:{tid}"
+            if wid not in nodes_workflow:
+                nodes_workflow[wid] = {
+                    "id": wid,
+                    "type": "workflow",
+                    "label": tid,
+                    "family": family,            # primary family (overridden below)
+                    "color": family_color(family),
+                    "model_count": 0,
+                }
+            else:
+                # Workflow uses multiple model families — keep the most-frequent one
+                # as primary. Tracking via a tally.
+                pass
+            nodes_workflow[wid]["model_count"] += 1
+            edges.append({"source": wid, "target": mid})
+
+    # Re-assign each workflow's primary family to the most-used family
+    workflow_family_tally: dict[str, dict[str, int]] = {}
+    for e in edges:
+        wf = e["source"]; mid = e["target"]
+        fam = nodes_model[mid]["family"]
+        workflow_family_tally.setdefault(wf, {}).setdefault(fam, 0)
+        workflow_family_tally[wf][fam] += 1
+    for wid, tally in workflow_family_tally.items():
+        primary = max(tally.items(), key=lambda kv: kv[1])[0]
+        nodes_workflow[wid]["family"] = primary
+        nodes_workflow[wid]["color"] = family_color(primary)
+
+    nodes = list(nodes_workflow.values()) + list(nodes_model.values())
+    families = {f: family_color(f) for f in sorted(families_seen)}
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "families": families,
+        "stats": {
+            "workflows": len(nodes_workflow),
+            "models": len(nodes_model),
+            "edges": len(edges),
+            "families": len(families),
+        },
+    }
+
+
+# ── API documentation registry ──────────────────────────────────────────
+# Single source of truth for what the dashboard exposes. Drives /docs.
+API_DOCS = [
+    {"section": "Discovery / live state"},
+    {"method": "GET", "path": "/api/dashboard",
+     "desc": "Aggregate snapshot: stats, instances, workflow groups. Used by the dashboard at refresh time.",
+     "auth": "localhost-bypass"},
+    {"method": "GET", "path": "/api/instances",
+     "desc": "List of ComfyUI instances reachable from the orchestrator with their queue load.",
+     "auth": "localhost-bypass"},
+    {"method": "GET", "path": "/api/jobs",
+     "desc": "Active jobs currently being processed by ComfyUI instances.",
+     "auth": "localhost-bypass"},
+    {"method": "GET", "path": "/api/setup",
+     "desc": "First-run check: which prerequisites are missing (comfyui installed, manifest built, classifications, etc.).",
+     "auth": "localhost-bypass"},
+    {"method": "GET", "path": "/api/events?since=<id>",
+     "desc": "Live event stream — long-poll style. Returns events with id > since (max 200). Empty list when nothing new.",
+     "auth": "localhost-bypass",
+     "response": '{"events": [{"id": 42, "ts": 1714286400.0, "kind": "ok", "source": "command", "message": "ok: catalog_status_xxx (rc=0, 7.2s)"}], "last_id": 42, "buffer_size": 47}'},
+
+    {"section": "Workflows"},
+    {"method": "GET", "path": "/api/workflow/<template_id>",
+     "desc": "Full details on a workflow: classification, default prompts, key widgets, last run, API JSON.",
+     "auth": "localhost-bypass"},
+    {"method": "POST", "path": "/api/job",
+     "desc": "Submit a workflow as a job. The orchestrator picks the least-loaded ComfyUI and forwards to its /prompt endpoint.",
+     "auth": "localhost-bypass",
+     "body": '{"template_id": "flux_schnell", "prompt": "a parrot on a bicycle"}'},
+    {"method": "GET", "path": "/api/preview?budget=<gb>",
+     "desc": "Dry-run a budget change: shows which models would be added / removed / kept under that budget.",
+     "auth": "localhost-bypass"},
+    {"method": "GET", "path": "/api/model-graph",
+     "desc": "Bipartite workflow ↔ model graph for visualization. Nodes (workflows + models), edges (uses-this-model), per-family colours.",
+     "auth": "localhost-bypass",
+     "response": '{"nodes": [{"id":"wf:flux_schnell","type":"workflow","family":"flux","color":"#88b6ff","model_count":3}, {"id":"model:flux1-schnell.safetensors","type":"model","family":"flux","color":"#88b6ff","size_gb":11.9}], "edges":[{"source":"wf:flux_schnell","target":"model:flux1-schnell.safetensors"}], "families":{"flux":"#88b6ff","sdxl":"#7ad67a"}, "stats":{"workflows":204,"models":136,"edges":612,"families":13}}'},
+
+    {"section": "Commands"},
+    {"method": "GET", "path": "/api/commands",
+     "desc": "List of whitelisted commands and the currently-running ones.",
+     "auth": "localhost-bypass"},
+    {"method": "POST", "path": "/api/command",
+     "desc": "Run a whitelisted command. Returns {ok, id, label}. Logs are captured.",
+     "auth": "localhost-bypass",
+     "body": '{"id": "catalog_build", "params": {"budget": 700, "max_age_years": 2}}'},
+    {"method": "GET", "path": "/api/command/log/<run_id>",
+     "desc": "Run info + last 8 KB of the command's stdout/stderr.",
+     "auth": "localhost-bypass"},
+    {"method": "POST", "path": "/api/command/cancel/<run_id>",
+     "desc": "Kill a running command (taskkill on Windows, SIGTERM/SIGKILL elsewhere). Marks the run as 'cancelled'.",
+     "auth": "localhost-bypass"},
+
+    {"section": "Authentication"},
+    {"method": "—", "path": "Bearer token",
+     "desc": ("Each request can pass `Authorization: Bearer <token>`. The token is generated on first run and "
+              "auto-injected into the dashboard HTML via `window.ORCHESTRATOR_TOKEN`. Localhost (127.0.0.1, ::1) "
+              "is exempt by default; set `ORCHESTRATOR_REQUIRE_AUTH=1` in the env to enforce auth even for localhost. "
+              "Token file: `<state_dir>/auth_token`."),
+     "auth": "—"},
+]
+
+
 def run_command_async(cmd_id: str, cmd: list[str], extra_args: list[str]):
     """Run a command in a thread, capture stdout, persist log."""
     full_cmd = cmd + extra_args
@@ -843,6 +1031,229 @@ def get_workflow_details(template_id: str) -> dict:
 DASHBOARD_HTML_PATH = Path(__file__).parent / "dashboard" / "index.html"
 
 
+def _render_docs_html() -> str:
+    """Render the API_DOCS spec as a self-contained HTML page in magascii style."""
+    rows_html = []
+    for entry in API_DOCS:
+        if "section" in entry:
+            rows_html.append(f'<h2 class="section">{html_escape(entry["section"])}</h2>')
+            continue
+        method = entry.get("method", "—")
+        path = entry.get("path", "—")
+        desc = entry.get("desc", "")
+        auth = entry.get("auth", "—")
+        body = entry.get("body", "")
+        resp = entry.get("response", "")
+        method_class = method.lower().replace("—", "info").replace("/", "-")
+        rows_html.append(f"""
+        <div class="endpoint">
+          <div class="ep-head">
+            <span class="m m-{method_class}">{html_escape(method)}</span>
+            <code class="path">{html_escape(path)}</code>
+            <span class="auth">auth: {html_escape(auth)}</span>
+          </div>
+          <p class="desc">{html_escape(desc)}</p>
+          {f'<div class="ex"><span class="lbl">body</span><pre>{html_escape(body)}</pre></div>' if body else ""}
+          {f'<div class="ex"><span class="lbl">response</span><pre>{html_escape(resp)}</pre></div>' if resp else ""}
+        </div>""")
+
+    palette_html = "".join(
+        f'<span class="fam-pill" style="background:{c}1a;border-color:{c};color:{c}">{html_escape(f)}</span>'
+        for f, c in FAMILY_COLORS.items()
+    )
+
+    body = "\n".join(rows_html)
+
+    return f"""<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>orchestrator@magascii — api docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {{
+    --bg:#0a0806; --screen:#0e0b07; --amber:#f5a30b; --amber-dim:#9c6405;
+    --line:rgba(245,163,11,0.18); --line-soft:rgba(245,163,11,0.08);
+    --text:#e8d9b0; --text-dim:#b8a57a; --muted:#7a6a4a;
+    --ok:#7ad67a; --warn:#ffb648; --err:#ff5555; --blue:#88b6ff;
+  }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  html, body {{
+    background:#000; color:var(--text);
+    font-family:'Fira Code', ui-monospace, monospace;
+    font-size: 13px; line-height: 1.5;
+  }}
+  body::before {{
+    content:""; position:fixed; inset:0;
+    background: radial-gradient(ellipse at center, var(--bg) 0%, #000 90%);
+    pointer-events:none; z-index:0;
+  }}
+  body::after {{
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:9999;
+    background: repeating-linear-gradient(0deg,
+      rgba(0,0,0,0) 0px, rgba(0,0,0,0) 2px,
+      rgba(0,0,0,0.10) 3px, rgba(0,0,0,0.10) 4px);
+    mix-blend-mode: multiply;
+  }}
+  .wrap {{
+    position:relative; z-index:1;
+    max-width: 980px; margin: 0 auto;
+    padding: 20px 24px 80px;
+    min-height: 100vh;
+    background: var(--screen);
+    border-left: 1px solid var(--amber-dim);
+    border-right: 1px solid var(--amber-dim);
+  }}
+  header {{
+    display:flex; align-items:baseline; gap:12px;
+    padding-bottom: 12px;
+    border-bottom: 1px dashed var(--line);
+    margin-bottom: 16px;
+  }}
+  header h1 {{
+    color: var(--amber); font-size: 16px;
+    letter-spacing: 1px;
+  }}
+  header .crumb {{ color: var(--muted); font-size: 11.5px; }}
+  header .home {{ margin-left: auto; }}
+  header a {{
+    color: var(--blue); text-decoration: none;
+    border-bottom: 1px dotted var(--blue);
+  }}
+  header a:hover {{ color: #c9defe; }}
+  .lead {{
+    color: var(--text-dim); font-size: 12.5px; line-height: 1.6;
+    margin-bottom: 24px;
+  }}
+  .lead code {{
+    color: var(--amber); background: rgba(245,163,11,0.08);
+    padding: 1px 5px; border-radius: 2px;
+  }}
+  h2.section {{
+    color: var(--amber);
+    font-size: 12px; letter-spacing: 2px;
+    text-transform: uppercase;
+    margin: 28px 0 8px;
+    padding: 6px 0;
+    border-top: 1px dashed var(--line);
+    border-bottom: 1px dashed var(--line-soft);
+  }}
+  h2.section:first-of-type {{ margin-top: 0; border-top: none; }}
+  .endpoint {{
+    border: 1px solid var(--line);
+    background: rgba(0,0,0,0.25);
+    padding: 10px 14px;
+    margin-bottom: 8px;
+  }}
+  .ep-head {{
+    display:flex; align-items: baseline; gap: 10px;
+    margin-bottom: 6px; flex-wrap: wrap;
+  }}
+  .m {{
+    font-weight: 600; padding: 2px 8px;
+    border: 1px solid var(--line);
+    color: var(--text-dim);
+    font-size: 11px; letter-spacing: 0.6px;
+  }}
+  .m-get  {{ color: var(--blue); border-color: rgba(136,182,255,0.4); }}
+  .m-post {{ color: var(--ok);   border-color: rgba(122,214,122,0.4); }}
+  .m-info {{ color: var(--muted); }}
+  code.path {{
+    color: var(--amber); font-weight: 600;
+    font-size: 13px;
+  }}
+  .auth {{
+    margin-left: auto;
+    color: var(--muted); font-size: 11px; letter-spacing: 0.4px;
+  }}
+  .desc {{
+    color: var(--text-dim); font-size: 12px;
+    margin-bottom: 6px;
+  }}
+  .ex {{ margin-top: 6px; }}
+  .ex .lbl {{
+    color: var(--muted); font-size: 10.5px;
+    text-transform: uppercase; letter-spacing: 0.6px;
+    display: block; margin-bottom: 2px;
+  }}
+  .ex pre {{
+    background: rgba(0,0,0,0.45);
+    border: 1px solid var(--line);
+    padding: 6px 10px;
+    font-size: 11.5px; line-height: 1.5;
+    color: var(--text); white-space: pre-wrap; word-break: break-all;
+    overflow-x: auto; max-height: 220px;
+  }}
+  .palette {{
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin: 10px 0 24px;
+  }}
+  .fam-pill {{
+    border: 1px solid; padding: 2px 10px;
+    font-size: 11px; letter-spacing: 0.4px;
+  }}
+  footer {{
+    margin-top: 32px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--line);
+    color: var(--muted); font-size: 11px;
+    line-height: 1.5;
+  }}
+</style>
+</head>
+<body><div class="wrap">
+
+<header>
+  <h1>orchestrator API</h1>
+  <span class="crumb">v2.4 · localhost-only</span>
+  <span class="home"><a href="/dashboard">← back to dashboard</a></span>
+</header>
+
+<p class="lead">
+  HTTP-JSON API exposed by <code>orchestrator.py serve</code>. All endpoints return JSON
+  (except <code>/dashboard</code> and <code>/docs</code>). Requests from <code>127.0.0.1</code>
+  / <code>::1</code> bypass auth by default; remote requests need
+  <code>Authorization: Bearer &lt;token&gt;</code> (token at <code>~/.catalog_state/auth_token</code>).
+  Set <code>ORCHESTRATOR_REQUIRE_AUTH=1</code> to require auth even on localhost.
+</p>
+
+<p class="lead">
+  Curl example:
+  <br>
+  <code>curl -s http://127.0.0.1:9100/api/instances | jq</code>
+  <br>
+  <code>curl -s -X POST http://127.0.0.1:9100/api/job -H 'Content-Type: application/json' -d '{{"template_id":"flux_schnell","prompt":"a parrot"}}'</code>
+</p>
+
+{body}
+
+<h2 class="section">Family palette</h2>
+<p class="lead">Used by <code>/api/model-graph</code> to color-code workflow ↔ model edges.</p>
+<div class="palette">
+  {palette_html}
+</div>
+
+<footer>
+  Source: <code>orchestrator.py</code> · this page is generated from the <code>API_DOCS</code> table.
+  <br>
+  JSON spec: <a href="/api/docs">/api/docs</a>
+</footer>
+
+</div></body></html>"""
+
+
+def html_escape(s) -> str:
+    """Lightweight HTML escape for the docs page."""
+    return (str(s)
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&#39;"))
+
+
 def _read_dashboard_html(token: str = "") -> bytes:
     """Serve the dashboard HTML with the auth token pre-injected so the user
     never has to copy-paste it. The injected `window.ORCHESTRATOR_TOKEN` is
@@ -927,6 +1338,16 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(html)
             return
 
+        # Public: API docs page (HTML)
+        if self.path in ("/docs", "/docs/"):
+            html = _render_docs_html().encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(html)))
+            self.end_headers()
+            self.wfile.write(html)
+            return
+
         # Auth-protected APIs
         if self.path.startswith("/api/"):
             if not self._check_auth():
@@ -991,6 +1412,16 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 return self._json(get_workflow_details(tid))
 
             # Commands list & status
+            # Workflow ↔ model bipartite graph
+            if self.path == "/api/model-graph":
+                return self._json(compute_model_graph())
+
+            # API docs as JSON (also rendered as HTML at /docs)
+            if self.path == "/api/docs":
+                return self._json({"endpoints": API_DOCS,
+                                    "families_palette": FAMILY_COLORS,
+                                    "version": "2.4"})
+
             # Live event stream — long-poll style: GET /api/events?since=<id>
             # Returns events with id > since (last 200 max). Empty list if no
             # new events in the buffer; client polls every ~1s.

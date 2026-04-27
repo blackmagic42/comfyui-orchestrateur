@@ -613,6 +613,7 @@
     <span class="term-dot y"></span>
     <span class="term-dot g"></span>
     <span class="term-title">orchestrator@magascii — control tower · <span id="banner-host">localhost:9100</span></span>
+    <a href="/docs" target="_blank" style="color:var(--blue); font-size:11.5px; text-decoration:none; border:1px solid var(--line); padding:2px 8px; letter-spacing:0.4px;">api docs</a>
     <span class="term-clock" id="term-clock">--:--:--</span>
   </div>
 
@@ -667,6 +668,23 @@
             <button class="pill" data-tab="submit">submit</button>
           </div>
           <div id="wfContent"><div class="empty">loading…</div></div>
+        </section>
+
+        <!-- MODEL ↔ WORKFLOW GRAPH -->
+        <section class="box" id="graphSection">
+          <h2>
+            <span style="cursor:pointer; user-select:none" onclick="toggleGraph()">
+              <span id="graphChevron">▶</span> model ↔ workflow graph
+            </span>
+            <span class="meta" id="graph-meta">click to expand</span>
+          </h2>
+          <div id="graphContent" style="display:none">
+            <div id="graphLegend" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px"></div>
+            <div id="graphInfo" style="font-size:11px; color:var(--muted); margin-bottom:6px">
+              workflows (squares) connected to the models (circles) they load. drag to pan, wheel to zoom, hover for label.
+            </div>
+            <svg id="graphSvg" style="width:100%; height:560px; background:rgba(0,0,0,0.35); border:1px solid var(--line); cursor:grab"></svg>
+          </div>
         </section>
 
       </div>
@@ -1341,6 +1359,248 @@ async function applyBudget(budget) {
     toast(`started: apply_changes (${res.id})`, "ok");
     setTimeout(rerenderCommands, 250);
   } catch (e) { toast("error: " + e.message, "err"); }
+}
+
+// ── Model ↔ Workflow graph (force-directed SVG) ────────────────────────
+let GRAPH_LOADED = false;
+let GRAPH_DATA = null;
+const GRAPH_STATE = {
+  nodes: [],          // {id, type, family, color, x, y, vx, vy, radius}
+  edges: [],          // {source, target}
+  zoom: 1, panX: 0, panY: 0,
+  width: 0, height: 0,
+  hoverId: null,
+  dragId: null,
+  panDragging: false,
+};
+async function toggleGraph() {
+  const c = document.getElementById("graphContent");
+  const ch = document.getElementById("graphChevron");
+  const meta = document.getElementById("graph-meta");
+  const open = c.style.display !== "none";
+  if (open) {
+    c.style.display = "none";
+    ch.textContent = "▶";
+    meta.textContent = "click to expand";
+    return;
+  }
+  c.style.display = "block";
+  ch.textContent = "▼";
+  meta.textContent = "loading…";
+  if (!GRAPH_LOADED) {
+    try {
+      const data = await apiGet("/api/model-graph");
+      if (data.error) {
+        meta.textContent = data.error;
+        document.getElementById("graphSvg").innerHTML =
+          `<text x="50%" y="50%" text-anchor="middle" fill="var(--muted)" font-family="var(--font)">${escHTML(data.error)}</text>`;
+        return;
+      }
+      GRAPH_DATA = data;
+      GRAPH_LOADED = true;
+      initGraph(data);
+      meta.textContent = `${data.stats.workflows} wf · ${data.stats.models} models · ${data.stats.edges} edges · ${data.stats.families} families`;
+      renderLegend(data.families);
+    } catch (e) {
+      meta.textContent = "error: " + e.message;
+    }
+  } else {
+    meta.textContent = `${GRAPH_DATA.stats.workflows} wf · ${GRAPH_DATA.stats.models} models · ${GRAPH_DATA.stats.edges} edges · ${GRAPH_DATA.stats.families} families`;
+  }
+}
+function renderLegend(families) {
+  const legend = document.getElementById("graphLegend");
+  legend.innerHTML = Object.entries(families).map(([f, c]) => `
+    <span style="border:1px solid ${c}; color:${c}; background:${c}1a; padding:2px 8px; font-size:10.5px; letter-spacing:0.4px">${escHTML(f)}</span>
+  `).join("");
+}
+function initGraph(data) {
+  const svg = document.getElementById("graphSvg");
+  const rect = svg.getBoundingClientRect();
+  GRAPH_STATE.width = rect.width;
+  GRAPH_STATE.height = rect.height;
+
+  // Layer the nodes: workflows on a left ring, models on a right ring.
+  // Then run a brief force simulation to disentangle.
+  const nodes = data.nodes.map(n => ({
+    ...n,
+    radius: n.type === "model" ? 5 : 4,
+    x: GRAPH_STATE.width / 2 + (Math.random() - 0.5) * 400,
+    y: GRAPH_STATE.height / 2 + (Math.random() - 0.5) * 400,
+    vx: 0, vy: 0,
+  }));
+  const idx = Object.fromEntries(nodes.map((n, i) => [n.id, i]));
+  const edges = data.edges
+    .filter(e => idx[e.source] !== undefined && idx[e.target] !== undefined)
+    .map(e => ({ source: idx[e.source], target: idx[e.target] }));
+
+  GRAPH_STATE.nodes = nodes;
+  GRAPH_STATE.edges = edges;
+
+  // Position nodes initially clustered by family using a polar layout.
+  const families = [...new Set(nodes.map(n => n.family))];
+  const cx = GRAPH_STATE.width / 2, cy = GRAPH_STATE.height / 2;
+  const R = Math.min(cx, cy) * 0.7;
+  families.forEach((fam, fi) => {
+    const angle = (fi / families.length) * Math.PI * 2;
+    const ax = cx + Math.cos(angle) * R * 0.65;
+    const ay = cy + Math.sin(angle) * R * 0.65;
+    const famNodes = nodes.filter(n => n.family === fam);
+    famNodes.forEach((n, ni) => {
+      const local = (ni / Math.max(1, famNodes.length)) * Math.PI * 2;
+      const lr = n.type === "workflow" ? 35 : 60;
+      n.x = ax + Math.cos(local) * lr;
+      n.y = ay + Math.sin(local) * lr;
+    });
+  });
+
+  runSimulation(120);   // 120 iterations is enough for a stable layout
+  bindGraphInteractions();
+  drawGraph();
+}
+
+function runSimulation(iterations) {
+  const { nodes, edges, width, height } = GRAPH_STATE;
+  const cx = width / 2, cy = height / 2;
+  for (let it = 0; it < iterations; it++) {
+    // Repulsion (linear-time approximation: every-node-against-every-node — ok for ~500 nodes)
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i], b = nodes[j];
+        let dx = a.x - b.x, dy = a.y - b.y;
+        let d2 = dx * dx + dy * dy;
+        if (d2 < 0.01) { dx = (Math.random()-0.5); dy = (Math.random()-0.5); d2 = 0.5; }
+        const f = 280 / d2;
+        const dist = Math.sqrt(d2);
+        const fx = (dx / dist) * f, fy = (dy / dist) * f;
+        a.vx += fx; a.vy += fy;
+        b.vx -= fx; b.vy -= fy;
+      }
+    }
+    // Attraction along edges
+    for (const e of edges) {
+      const a = nodes[e.source], b = nodes[e.target];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const k = 0.012 * (dist - 50);
+      a.vx += dx * k; a.vy += dy * k;
+      b.vx -= dx * k; b.vy -= dy * k;
+    }
+    // Centring force
+    for (const n of nodes) {
+      n.vx += (cx - n.x) * 0.001;
+      n.vy += (cy - n.y) * 0.001;
+    }
+    // Apply velocity with damping
+    for (const n of nodes) {
+      n.vx *= 0.85; n.vy *= 0.85;
+      n.x += n.vx; n.y += n.vy;
+    }
+  }
+}
+
+function drawGraph() {
+  const { nodes, edges, hoverId, zoom, panX, panY } = GRAPH_STATE;
+  const svg = document.getElementById("graphSvg");
+
+  // Edges below, nodes above. <g> for transform (zoom + pan).
+  const g = `<g transform="translate(${panX} ${panY}) scale(${zoom})">`;
+  const edgeHtml = edges.map(e => {
+    const a = nodes[e.source], b = nodes[e.target];
+    const isHover = (a.id === hoverId || b.id === hoverId);
+    const stroke = isHover ? a.color : "rgba(245,163,11,0.10)";
+    const w = isHover ? 1.4 : 0.5;
+    return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${stroke}" stroke-width="${w}" />`;
+  }).join("");
+
+  const nodeHtml = nodes.map((n, i) => {
+    const isHover = n.id === hoverId;
+    const r = n.radius * (isHover ? 1.6 : 1);
+    if (n.type === "workflow") {
+      // Square for workflows
+      return `<rect x="${n.x - r}" y="${n.y - r}" width="${r*2}" height="${r*2}" fill="${n.color}" stroke="${isHover ? '#fff' : 'rgba(0,0,0,0.4)'}" stroke-width="${isHover ? 1 : 0.5}" data-i="${i}" style="cursor:pointer" />`;
+    } else {
+      // Circle for models
+      return `<circle cx="${n.x}" cy="${n.y}" r="${r}" fill="${n.color}" stroke="${isHover ? '#fff' : 'rgba(0,0,0,0.4)'}" stroke-width="${isHover ? 1 : 0.5}" data-i="${i}" style="cursor:pointer" />`;
+    }
+  }).join("");
+
+  // Tooltip for hovered node
+  let tipHtml = "";
+  if (hoverId) {
+    const n = nodes.find(x => x.id === hoverId);
+    if (n) {
+      const tx = n.x * zoom + panX + 12;
+      const ty = n.y * zoom + panY - 8;
+      const label = n.type === "workflow"
+        ? `${n.label}  ·  ${n.model_count || 0} models`
+        : `${n.label}  ·  ${n.size_gb || 0} GB`;
+      const fam = `family: ${n.family}`;
+      tipHtml = `
+        <g transform="translate(${tx} ${ty})">
+          <rect x="0" y="-12" width="${Math.max(label.length, fam.length) * 6.5 + 12}" height="30" fill="#0e0b07" stroke="${n.color}" stroke-width="0.8" />
+          <text x="6" y="0" fill="${n.color}" font-family="var(--font)" font-size="11">${escHTML(label)}</text>
+          <text x="6" y="13" fill="var(--muted)" font-family="var(--font)" font-size="10">${escHTML(fam)}</text>
+        </g>`;
+    }
+  }
+
+  svg.innerHTML = g + edgeHtml + nodeHtml + "</g>" + tipHtml;
+}
+
+function bindGraphInteractions() {
+  const svg = document.getElementById("graphSvg");
+  let lastX = 0, lastY = 0;
+
+  svg.onmousedown = (e) => {
+    const i = e.target.dataset?.i;
+    if (i !== undefined) {
+      GRAPH_STATE.dragId = +i;
+      GRAPH_STATE.panDragging = false;
+    } else {
+      GRAPH_STATE.panDragging = true;
+    }
+    lastX = e.clientX; lastY = e.clientY;
+    svg.style.cursor = "grabbing";
+  };
+  svg.onmousemove = (e) => {
+    const rect = svg.getBoundingClientRect();
+    const mx = (e.clientX - rect.left - GRAPH_STATE.panX) / GRAPH_STATE.zoom;
+    const my = (e.clientY - rect.top - GRAPH_STATE.panY) / GRAPH_STATE.zoom;
+    if (GRAPH_STATE.dragId !== null) {
+      const n = GRAPH_STATE.nodes[GRAPH_STATE.dragId];
+      n.x = mx; n.y = my; n.vx = 0; n.vy = 0;
+      drawGraph();
+    } else if (GRAPH_STATE.panDragging) {
+      GRAPH_STATE.panX += e.clientX - lastX;
+      GRAPH_STATE.panY += e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      drawGraph();
+    } else {
+      const i = e.target.dataset?.i;
+      const newHover = i !== undefined ? GRAPH_STATE.nodes[+i].id : null;
+      if (newHover !== GRAPH_STATE.hoverId) {
+        GRAPH_STATE.hoverId = newHover;
+        drawGraph();
+      }
+    }
+  };
+  svg.onmouseup = svg.onmouseleave = () => {
+    GRAPH_STATE.dragId = null;
+    GRAPH_STATE.panDragging = false;
+    svg.style.cursor = "grab";
+  };
+  svg.onwheel = (e) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    const rect = svg.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    GRAPH_STATE.panX = mx - (mx - GRAPH_STATE.panX) * delta;
+    GRAPH_STATE.panY = my - (my - GRAPH_STATE.panY) * delta;
+    GRAPH_STATE.zoom *= delta;
+    GRAPH_STATE.zoom = Math.max(0.2, Math.min(5, GRAPH_STATE.zoom));
+    drawGraph();
+  };
 }
 
 // ── Filter pills (workflow section only) ───────────────────────────────
