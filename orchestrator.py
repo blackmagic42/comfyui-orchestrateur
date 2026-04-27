@@ -401,6 +401,8 @@ def discover_instances_cached() -> list[dict]:
 def submit_job_async(template_id: str, klass: dict, prompt: str | None,
                      instance: dict, results: dict, run_id: str):
     """Submit a job in a background thread and update results when done."""
+    log_event("info", "job", f"submitted: {template_id} → {instance['url']}",
+              template_id=template_id, instance=instance["url"])
     api_path = API_DIR / f"{template_id}.json"
     if not api_path.exists():
         with ACTIVE_JOBS_LOCK:
@@ -412,6 +414,8 @@ def submit_job_async(template_id: str, klass: dict, prompt: str | None,
             "last_run": run_id,
         }
         save_results(results)
+        log_event("error", "job", f"failed: {template_id} — API not exported",
+                  template_id=template_id)
         return
 
     api_graph = json.loads(api_path.read_text(encoding="utf-8"))
@@ -478,6 +482,17 @@ def submit_job_async(template_id: str, klass: dict, prompt: str | None,
             "error": f"exception: {exc}", "duration": time.time() - t0,
             "last_run": run_id,
         }
+        log_event("error", "job", f"crashed: {template_id} — {exc}",
+                  template_id=template_id)
+    else:
+        # Reached only when no exception; log success/error/timeout
+        rs = results["by_workflow"][template_id].get("status", "unknown")
+        dur = results["by_workflow"][template_id].get("duration", 0)
+        out_count = len(results["by_workflow"][template_id].get("outputs", []))
+        kind = "ok" if rs == "ok" else ("warn" if rs == "timeout" else "error")
+        log_event(kind, "job",
+                  f"{rs}: {template_id} ({dur}s, {out_count} output{'s' if out_count != 1 else ''})",
+                  template_id=template_id, duration=dur)
     finally:
         with ACTIVE_JOBS_LOCK:
             ACTIVE_JOBS.pop(template_id, None)
@@ -694,12 +709,43 @@ COMMAND_WHITELIST = {
 COMMAND_PROCESSES: dict[str, dict] = {}
 COMMAND_LOCK = threading.Lock()
 
+# ── Live event log (ring buffer; consumed by the dashboard's live stream) ───
+import collections
+EVENT_LOG: collections.deque = collections.deque(maxlen=500)
+EVENT_LOG_LOCK = threading.Lock()
+_EVENT_NEXT_ID = 1
+
+def log_event(kind: str, source: str, message: str, **extra):
+    """Append a structured event to the live log.
+
+    kind     — 'info' | 'ok' | 'warn' | 'error'
+    source   — short tag, e.g. 'command', 'job', 'instance', 'system'
+    message  — human-readable line
+    extra    — arbitrary JSON-serializable fields (id, duration, …)
+    """
+    global _EVENT_NEXT_ID
+    with EVENT_LOG_LOCK:
+        ev = {
+            "id": _EVENT_NEXT_ID,
+            "ts": time.time(),
+            "kind": kind, "source": source, "message": message,
+            **extra,
+        }
+        _EVENT_NEXT_ID += 1
+        EVENT_LOG.append(ev)
+
+
+def get_events_since(since_id: int = 0, limit: int = 200) -> list[dict]:
+    with EVENT_LOG_LOCK:
+        return [e for e in EVENT_LOG if e["id"] > since_id][-limit:]
+
 
 def run_command_async(cmd_id: str, cmd: list[str], extra_args: list[str]):
     """Run a command in a thread, capture stdout, persist log."""
     full_cmd = cmd + extra_args
     log_file = STATE_DIR / f"cmd_{cmd_id}_{int(time.time())}.log"
     log_handle = open(log_file, "w", encoding="utf-8")
+    log_event("info", "command", f"started: {cmd_id}", run_id=cmd_id, cmd=" ".join(full_cmd))
     try:
         proc = subprocess.Popen(
             full_cmd,
@@ -716,15 +762,25 @@ def run_command_async(cmd_id: str, cmd: list[str], extra_args: list[str]):
             }
         rc = proc.wait()
         with COMMAND_LOCK:
-            COMMAND_PROCESSES[cmd_id]["status"] = "ok" if rc == 0 else "error"
+            # If the run was cancelled, preserve the cancelled status
+            if COMMAND_PROCESSES[cmd_id].get("status") != "cancelled":
+                COMMAND_PROCESSES[cmd_id]["status"] = "ok" if rc == 0 else "error"
             COMMAND_PROCESSES[cmd_id]["return_code"] = rc
             COMMAND_PROCESSES[cmd_id]["finished_at"] = time.time()
+            final_status = COMMAND_PROCESSES[cmd_id]["status"]
+        duration = round(time.time() - COMMAND_PROCESSES[cmd_id]["started_at"], 1)
+        log_event(
+            "ok" if final_status == "ok" else ("warn" if final_status == "cancelled" else "error"),
+            "command", f"{final_status}: {cmd_id} (rc={rc}, {duration}s)",
+            run_id=cmd_id, return_code=rc, duration=duration,
+        )
     except Exception as exc:
         with COMMAND_LOCK:
             COMMAND_PROCESSES[cmd_id] = {
                 "status": "error", "error": str(exc),
                 "started_at": time.time(),
             }
+        log_event("error", "command", f"crashed: {cmd_id} — {exc}", run_id=cmd_id)
     finally:
         log_handle.close()
 
@@ -935,6 +991,20 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 return self._json(get_workflow_details(tid))
 
             # Commands list & status
+            # Live event stream — long-poll style: GET /api/events?since=<id>
+            # Returns events with id > since (last 200 max). Empty list if no
+            # new events in the buffer; client polls every ~1s.
+            if self.path.startswith("/api/events"):
+                qs = urllib.parse.urlparse(self.path).query
+                params = urllib.parse.parse_qs(qs)
+                try:
+                    since = int(params.get("since", ["0"])[0])
+                except ValueError:
+                    since = 0
+                evs = get_events_since(since)
+                last_id = evs[-1]["id"] if evs else since
+                return self._json({"events": evs, "last_id": last_id, "buffer_size": len(EVENT_LOG)})
+
             if self.path == "/api/commands":
                 # Strip cmd lists from output (they expose absolute paths)
                 pub = {cid: {k: v for k, v in c.items() if k != "cmd"}
@@ -994,6 +1064,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     if cmd_id in COMMAND_PROCESSES:
                         COMMAND_PROCESSES[cmd_id]["status"] = "cancelled"
                         COMMAND_PROCESSES[cmd_id]["finished_at"] = time.time()
+                log_event("warn", "command", f"cancelled: {cmd_id} (pid={pid})", run_id=cmd_id)
                 return self._json({"ok": True, "id": cmd_id, "killed_pid": pid})
             except Exception as exc:
                 return self._json({"error": str(exc)}, status=500)
