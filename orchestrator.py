@@ -816,6 +816,218 @@ def curated_family(raw: str) -> str:
     return CURATED_FAMILY_MAP.get(raw, raw)
 
 
+# ── Version / upgrade detection ─────────────────────────────────────────
+# Heuristic: model filenames often look like "<core>-<date>-<size>-<quant>.safetensors".
+# We extract the "core" (the bit before any version/size/quant marker), the date
+# (4-digit YYMM marker like 2509 / 2511), and the size class (9b / 14b) so that we
+# can group same-product variants and propose temporal upgrades within each group.
+import re as _re
+
+_VERSION_MARKER_RE = _re.compile(
+    r"(?<![0-9])\d{4}(?![0-9])"          # date marker: 2509, 2511, 2602
+    r"|\d+b(?![0-9a-z])"                  # size class: 9b, 14b, 4b
+    r"|fp\d+|bf\d+|int\d+"                # quantization
+    r"|\d+\s*steps?"                      # 4steps, 8steps
+    r"|\bv\d+(?:\.\d+)*"                  # v1, v1.0
+    r"|\b(?:lightning|turbo|distill(?:ed)?|scaled|mixed|fixed|lite|small|medium|hd|md|sm)",
+    flags=_re.IGNORECASE,
+)
+_DATE_RE = _re.compile(r"(?<![0-9])(\d{4})(?![0-9])")
+_SIZE_RE = _re.compile(r"(\d+b)(?![0-9a-z])", flags=_re.IGNORECASE)
+
+
+def extract_core_name(filename: str) -> str:
+    """Strip the version/quantization/size suffix from a filename to get the
+    canonical 'product name'. Used to group variants:
+        qwen_image_edit_2509_fp8_e4m3fn  →  qwen-image-edit
+        Qwen_Image_Edit_2511-SYSTMS_INFL8 →  qwen-image-edit
+        flux-2-klein-9b-fp8              →  flux-2-klein
+        flux-2-klein-base-4b             →  flux-2-klein-base
+    """
+    name = filename.lower().rsplit(".", 1)[0]
+    name = _re.sub(r"[-_]+", "-", name)
+    m = _VERSION_MARKER_RE.search(name)
+    if m:
+        name = name[: m.start()]
+    return name.rstrip("-")
+
+
+def extract_release_date(filename: str) -> int:
+    """Highest 4-digit YYMM-like marker (2509 < 2511 < 2602). 0 if none."""
+    matches = _DATE_RE.findall(filename.lower())
+    return max((int(m) for m in matches), default=0)
+
+
+def extract_size_class(filename: str) -> str:
+    """e.g. '9b', '14b'. Empty string if no size marker."""
+    m = _SIZE_RE.search(filename.lower())
+    return m.group(1) if m else ""
+
+
+_FLAVOR_TOKEN_RE = _re.compile(
+    r"\b(lightning|turbo|distill(?:ed)?|lite|small|medium|hd|md|sm"
+    r"|fp\d+|bf\d+|int\d+|e\d+m\d+|scaled|mixed|fixed"
+    r"|\d+steps?|lora|loras|controlnet|union|dev|schnell|base)\b",
+    flags=_re.IGNORECASE,
+)
+
+
+def extract_flavor_tokens(filename: str) -> set:
+    """Extract distinctive tokens from a filename for flavor matching:
+    Lightning, fp8, 4steps, lora, etc. Used to pick the best upgrade
+    candidate (Lightning 2509 → Lightning 2511, not Lightning 2509 → SYSTMS 2511).
+    """
+    return {m.lower() for m in _FLAVOR_TOKEN_RE.findall(filename.lower())}
+
+
+def compute_upgrades() -> dict:
+    """Detect workflows that load an older variant of a model whose newer
+    variant exists in the catalog.
+
+    Reads `all_models_cache.json` (the full ComfyUI catalog — every model
+    referenced by any of the 218 reference workflows) — NOT just the
+    `manifest.json` selection-by-budget. This way we can catch upgrades
+    even when the older 2509 variant is no longer in the budget but is
+    still wired into a reference workflow.
+
+    Strategy:
+      1. Group models by (core, size_class, family). Same core + same size +
+         same family ⇒ same product line.
+      2. Within each group, sort by extract_release_date. The largest date
+         is the recommended version; older ones are upgradeable to it.
+      3. For every workflow that uses an older variant, surface an upgrade
+         hint: { from: old_filename, to: new_filename, reason }.
+
+    Returns a structure consumable by the dashboard:
+      {
+        "by_workflow": {tid: [{from, to, from_date, to_date, family, size}, ...]},
+        "by_model":    {old_filename: new_filename},
+        "groups":      [{core, size, family, variants: [{name, date, used_in}]}, ...],
+        "stats":       {workflows_with_upgrades, total_upgrade_pairs, groups},
+      }
+    """
+    # Prefer the full all-models cache; fall back to the budgeted manifest.
+    cache_path = STATE_DIR / "all_models_cache.json"
+    manifest_path = STATE_DIR / "manifest.json"
+
+    selected = None
+    source_used = None
+    if cache_path.exists():
+        try:
+            cache = json.loads(cache_path.read_text(encoding="utf-8"))
+            selected = cache.get("models") or []
+            source_used = "all_models_cache"
+        except Exception:
+            selected = None
+
+    if selected is None and manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            selected = manifest.get("selected_models") or []
+            source_used = "manifest"
+        except Exception:
+            selected = None
+
+    if not selected:
+        return {"error": "neither all_models_cache nor manifest available — run catalog_build",
+                "by_workflow": {}, "by_model": {}, "groups": [], "stats": {}}
+
+    # Group by (curated_family, core, size)
+    groups: dict[tuple, list] = {}
+    for m in selected:
+        fname = m.get("name") or "?"
+        family = curated_family(m.get("family") or "unknown")
+        core = extract_core_name(fname)
+        size = extract_size_class(fname)
+        key = (family, core, size)
+        groups.setdefault(key, []).append({
+            "name": fname,
+            "date": extract_release_date(fname),
+            "size": size,
+            "family": family,
+            "core": core,
+            "used_in": list(m.get("used_in") or []),
+            "directory": m.get("directory") or "",
+            "size_gb": round((m.get("size") or 0) / 1024**3, 2),
+        })
+
+    by_workflow: dict[str, list] = {}
+    by_model: dict[str, str] = {}
+    group_summaries = []
+
+    for (family, core, size), variants in groups.items():
+        dates = [v["date"] for v in variants]
+        if len(variants) < 2 or max(dates) == 0:
+            continue
+        variants.sort(key=lambda v: v["date"], reverse=True)
+        latest_date = variants[0]["date"]
+        # Only consider as "older" variants whose date is STRICTLY less.
+        # Same-date alternative builds (e.g. two 2511 builds — one Lightning,
+        # one SYSTMS) are siblings, not upgrades.
+        older = [v for v in variants if v["date"] < latest_date and v["date"] > 0]
+        if not older:
+            continue
+        # All candidates at the latest date — for each older variant we'll
+        # pick the latest-date candidate that best matches its flavor tokens
+        # (Lightning ↔ Lightning, not Lightning ↔ SYSTMS).
+        latest_candidates = [v for v in variants if v["date"] == latest_date]
+
+        # Default "group latest" (for the summary): the most-used candidate
+        group_latest = max(latest_candidates, key=lambda v: len(v["used_in"]))
+
+        group_summaries.append({
+            "family": family, "core": core, "size": size,
+            "variants": [
+                {"name": v["name"], "date": v["date"], "used_in_count": len(v["used_in"])}
+                for v in variants
+            ],
+            "latest": group_latest["name"],
+            "latest_date": latest_date,
+        })
+
+        for v in older:
+            old_flavor = extract_flavor_tokens(v["name"])
+            # Pick the latest candidate whose flavor tokens overlap most with
+            # the old's. Tiebreak: most-used.
+            def score(cand):
+                cand_flavor = extract_flavor_tokens(cand["name"])
+                overlap = len(old_flavor & cand_flavor)
+                # Penalise candidates that introduce flavors the old didn't have
+                introduced = len(cand_flavor - old_flavor)
+                return (overlap, -introduced, len(cand["used_in"]))
+            best = max(latest_candidates, key=score)
+            by_model[v["name"]] = best["name"]
+            shared = old_flavor & extract_flavor_tokens(best["name"])
+            flavor_note = f" · same flavor [{', '.join(sorted(shared))}]" if shared else ""
+            for tid in v["used_in"]:
+                by_workflow.setdefault(tid, []).append({
+                    "from": v["name"],
+                    "to": best["name"],
+                    "from_date": v["date"],
+                    "to_date": latest_date,
+                    "family": family,
+                    "size": size,
+                    "reason": f"newer release ({v['date']} -> {latest_date}){flavor_note}",
+                })
+
+    # Sort each workflow's upgrades by date jump (biggest first)
+    for tid in by_workflow:
+        by_workflow[tid].sort(key=lambda u: u["to_date"] - u["from_date"], reverse=True)
+
+    return {
+        "by_workflow": by_workflow,
+        "by_model": by_model,
+        "groups": sorted(group_summaries, key=lambda g: (g["family"], g["core"])),
+        "stats": {
+            "workflows_with_upgrades": len(by_workflow),
+            "total_upgrade_pairs": sum(len(v) for v in by_workflow.values()),
+            "groups": len(group_summaries),
+            "source": source_used,
+            "models_scanned": len(selected),
+        },
+    }
+
+
 def family_color(family: str) -> str:
     """Pick a colour for an unknown family by hashing it into the palette."""
     if not family: return DEFAULT_FAMILY_COLOR
@@ -958,6 +1170,12 @@ API_DOCS = [
      "desc": "Bipartite workflow ↔ model graph for visualization. Nodes (workflows + models), edges (uses-this-model), per-family colours.",
      "auth": "localhost-bypass",
      "response": '{"nodes": [{"id":"wf:flux_schnell","type":"workflow","family":"flux","color":"#88b6ff","model_count":3}, {"id":"model:flux1-schnell.safetensors","type":"model","family":"flux","color":"#88b6ff","size_gb":11.9}], "edges":[{"source":"wf:flux_schnell","target":"model:flux1-schnell.safetensors"}], "families":{"flux":"#88b6ff","sdxl":"#7ad67a"}, "stats":{"workflows":204,"models":136,"edges":612,"families":13}}'},
+    {"method": "GET", "path": "/api/upgrades",
+     "desc": ("Detects workflows loading an older variant of a model whose newer variant is in the catalog. "
+              "Same core name (e.g. qwen-image-edit) + same size class + newer date marker (2509 → 2511). "
+              "Returns per-workflow recommendations to swap old → new."),
+     "auth": "localhost-bypass",
+     "response": '{"by_workflow":{"image_qwen_edit_2509":[{"from":"qwen_image_edit_2509_fp8_e4m3fn.safetensors","to":"Qwen_Image_Edit_2511-SYSTMS_INFL8.safetensors","from_date":2509,"to_date":2511,"family":"qwen","reason":"newer release (2509 → 2511)"}]},"by_model":{"qwen_image_edit_2509_fp8_e4m3fn.safetensors":"Qwen_Image_Edit_2511-SYSTMS_INFL8.safetensors"},"stats":{"workflows_with_upgrades":7,"total_upgrade_pairs":12,"groups":4}}'},
 
     {"section": "Commands"},
     {"method": "GET", "path": "/api/commands",
@@ -1471,6 +1689,11 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             # Workflow ↔ model bipartite graph
             if self.path == "/api/model-graph":
                 return self._json(compute_model_graph())
+
+            # Upgrade suggestions: workflows using an older model variant
+            # whose newer variant is in the catalog
+            if self.path == "/api/upgrades":
+                return self._json(compute_upgrades())
 
             # API docs as JSON (also rendered as HTML at /docs)
             if self.path == "/api/docs":
