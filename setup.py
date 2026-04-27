@@ -606,7 +606,7 @@ def mode_multi_instance() -> None:
     if not check_prereqs_local():
         return
 
-    n = ask_int("Combien d'instances installer ?", 2, min_val=2)
+    n = ask_int("Combien d'instances installer ?", 2, min_val=1)
     print()
 
     instances: list[dict] = []
