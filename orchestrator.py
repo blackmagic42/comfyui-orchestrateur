@@ -787,10 +787,28 @@ def get_workflow_details(template_id: str) -> dict:
 DASHBOARD_HTML_PATH = Path(__file__).parent / "dashboard" / "index.html"
 
 
-def _read_dashboard_html() -> bytes:
-    if DASHBOARD_HTML_PATH.exists():
-        return DASHBOARD_HTML_PATH.read_bytes()
-    return b"<h1>Dashboard HTML missing</h1>"
+def _read_dashboard_html(token: str = "") -> bytes:
+    """Serve the dashboard HTML with the auth token pre-injected so the user
+    never has to copy-paste it. The injected `window.ORCHESTRATOR_TOKEN` is
+    picked up by the dashboard JS at boot.
+    """
+    if not DASHBOARD_HTML_PATH.exists():
+        return b"<h1>Dashboard HTML missing</h1>"
+    html = DASHBOARD_HTML_PATH.read_text(encoding="utf-8")
+    if token:
+        injection = (
+            "<script>window.ORCHESTRATOR_TOKEN = "
+            + json.dumps(token)
+            + ";</script>\n"
+        )
+        # Inject right before </head> if present, else at the start of <body>
+        if "</head>" in html:
+            html = html.replace("</head>", injection + "</head>", 1)
+        elif "<body" in html:
+            html = html.replace("<body", injection + "<body", 1)
+        else:
+            html = injection + html
+    return html.encode("utf-8")
 
 
 def _send_json(handler, data, status=200):
@@ -812,7 +830,13 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
     def _check_auth(self) -> bool:
         if not self.expected_token:
-            return True  # auth disabled
+            return True  # auth disabled (--no-auth)
+        # Localhost is implicitly trusted — the orchestrator is local-only.
+        # If you ever expose it to a network, set ORCHESTRATOR_REQUIRE_AUTH=1
+        # to disable this bypass.
+        client = self.client_address[0] if self.client_address else ""
+        if client in ("127.0.0.1", "::1") and not os.environ.get("ORCHESTRATOR_REQUIRE_AUTH"):
+            return True
         auth = self.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
             return False
@@ -837,9 +861,9 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        # Public: dashboard HTML
+        # Public: dashboard HTML — token auto-injected (no manual paste)
         if self.path in ("/", "/dashboard"):
-            html = _read_dashboard_html()
+            html = _read_dashboard_html(self.expected_token)
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(html)))

@@ -254,7 +254,15 @@
 
 <script>
 const API = window.location.origin;
-let TOKEN = localStorage.getItem("orchestrator_token") || "";
+// Token resolution order:
+//   1. window.ORCHESTRATOR_TOKEN — injected by orchestrator.py at serve time (preferred)
+//   2. localStorage — manual paste fallback for cases where the dashboard is
+//      served by something other than the orchestrator (rare)
+let TOKEN = window.ORCHESTRATOR_TOKEN || localStorage.getItem("orchestrator_token") || "";
+if (window.ORCHESTRATOR_TOKEN) {
+  // Persist it so a refresh without injection (cached HTML) still works
+  try { localStorage.setItem("orchestrator_token", window.ORCHESTRATOR_TOKEN); } catch {}
+}
 let DATA = null;
 let COMMANDS_DATA = null;
 let CURRENT_TAB = "all";

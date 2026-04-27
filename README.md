@@ -1,11 +1,10 @@
 # ComfyUI Orchestrator
 
-Install, manage, and load-balance fleets of [ComfyUI](https://github.com/comfyanonymous/ComfyUI) instances across one or many machines — locally, on a cluster, or behind a public VPS.
+Install, manage, and load-balance fleets of [ComfyUI](https://github.com/comfyanonymous/ComfyUI) instances on one machine or across a cluster.
 
 > **Why**: ComfyUI is great for one user on one machine. As soon as you want
-> *N* instances on different disks, *N* GPUs spread across DGX boxes, or you
-> need to receive jobs from a public VPS and route them to whichever
-> ComfyUI is least busy, you need glue. This is that glue.
+> *N* instances on different disks, or *N* GPUs spread across DGX boxes
+> sharing the same model collection, you need glue. This is that glue.
 
 ---
 
@@ -14,7 +13,7 @@ Install, manage, and load-balance fleets of [ComfyUI](https://github.com/comfyan
 ```
                           ┌──────────────┐
    workflow API jobs  ──► │ Orchestrator │ ──┬──► ComfyUI :8188
-   from your VPS          │   :9000      │   ├──► ComfyUI :8189
+                          │   :9100      │   ├──► ComfyUI :8189
                           └──────┬───────┘   ├──► ComfyUI :8190
                                  │           └──► ComfyUI on dg2:8188 (NFS)
                           dashboard
@@ -22,7 +21,7 @@ Install, manage, and load-balance fleets of [ComfyUI](https://github.com/comfyan
 ```
 
 - **Orchestrator-first** — `setup.py` installs *only* the orchestrator (a small stdlib-Python service). Everything else — installing ComfyUI, picking a model budget, deploying instances, managing the cluster — happens **in the dashboard**.
-- **Web dashboard** at `http://127.0.0.1:9000/dashboard` :
+- **Web dashboard** at `http://127.0.0.1:9100/dashboard` :
   - "⚙ Install ComfyUI" button → bootstraps a fresh ComfyUI install
   - Budget slider (100 → 2000 GB, or presets 250/400/700/1500) with live preview of what fits
   - "✨ Apply changes" → rebuilds catalog, downloads new models, removes obsolete ones
@@ -46,8 +45,8 @@ python setup.py --install
 
 That's it. `setup.py` :
 - creates `~/.comfyui-orchestrator/` for state (logs, pid, config)
-- spawns `orchestrator.py serve --port 9000` as a detached background process
-- opens `http://127.0.0.1:9000/dashboard` in your browser
+- spawns `orchestrator.py serve --port 9100` as a detached background process
+- opens `http://127.0.0.1:9100/dashboard` in your browser
 
 ### 2. From the dashboard, deploy ComfyUI
 
@@ -80,8 +79,8 @@ python setup.py
 ```
 
 ```
-● Orchestrateur en cours · PID 12345 · port 9000
-  Dashboard : http://127.0.0.1:9000/dashboard
+● Orchestrateur en cours · PID 12345 · port 9100
+  Dashboard : http://127.0.0.1:9100/dashboard
 
 Actions :
   o) Ouvrir le dashboard dans le navigateur
@@ -96,33 +95,22 @@ Actions :
 
 ---
 
-## VPS → ComfyUI flow
+## API
 
-The whole point: **a public VPS receives workflow JSON from a user, sends it to your private GPU fleet, returns the result**.
+The orchestrator speaks plain JSON-over-HTTP — anything that can `POST /api/job` with a workflow ID + optional prompt overrides can use it. See [`orchestrator.py`](orchestrator.py) for the full whitelist of endpoints.
 
 ```
-User browser ──HTTPS──► VPS (Caddy/Nginx) ──http──► Orchestrator (your LAN, :9000)
-                                                       │
-                                                       ▼
-                                        Pick least-busy ComfyUI instance
-                                                       │
-                                                       ▼
-                                          POST /prompt to that instance
-                                                       ▼
-                                          Wait for image / video output
-                                                       ▼
-                                                 Return to VPS
+POST /api/job
+  body: { "template_id": "flux_schnell", "prompt": "a parrot on a bicycle" }
+  → orchestrator picks the least-loaded ComfyUI, forwards to its /prompt,
+    polls /history, returns the resulting image / video / audio
 ```
-
-Bring your own VPN/tunnel (Tailscale, Wireguard, ssh -R) so the VPS can reach the orchestrator without exposing it. See [`setup_tunnel.sh`](setup_tunnel.sh) for an example with a reverse SSH tunnel.
-
-The orchestrator API speaks plain JSON-over-HTTP — anything that can `POST /api/run` with a workflow can use it.
 
 ---
 
 ## Installer
 
-`setup.py` installs **only the orchestrator** — a small stdlib-Python service that runs in the background and serves the dashboard on `:9000`. Once it's up, the dashboard's **⚙ Install ComfyUI** button (which calls `bootstrap_install` in the whitelist) does the actual ComfyUI bootstrap by invoking :
+`setup.py` installs **only the orchestrator** — a small stdlib-Python service that runs in the background and serves the dashboard on `:9100`. Once it's up, the dashboard's **⚙ Install ComfyUI** button (which calls `bootstrap_install` in the whitelist) does the actual ComfyUI bootstrap by invoking :
 
 | File | What it does | OS |
 |---|---|---|
@@ -182,7 +170,7 @@ A small HTTP service that:
 - Persists state to `<repo>/.catalog_state/` (override via `$COMFYUI_STATE_DIR`).
 
 ```bash
-python orchestrator.py serve --port 9000           # API + dashboard
+python orchestrator.py serve --port 9100           # API + dashboard
 python orchestrator.py status                      # list discovered instances
 python orchestrator.py launch --port 8188          # spawn a ComfyUI instance
 python orchestrator.py test --phase 1              # batch-run all phase-1 workflows
@@ -215,7 +203,7 @@ Re-run any of them — they're idempotent and resume from the persistent state d
 |---|---|
 | `setup.py` | **Orchestrator installer + lifecycle** — start here |
 | `orchestrator.py` | HTTP proxy + dashboard + load balancer (the long-running service) |
-| `dashboard/` | Static HTML/JS served at `:9000/dashboard` |
+| `dashboard/` | Static HTML/JS served at `:9100/dashboard` |
 | `install_comfyui.sh` / `.ps1` | Per-OS ComfyUI bootstrap (called by the dashboard, not by you) |
 | `deploy_cluster.sh` | Multi-host deployment over SSH |
 | `setup.sh` | Bash menu wrapper (legacy, predates the orchestrator-first model) |
@@ -225,7 +213,6 @@ Re-run any of them — they're idempotent and resume from the persistent state d
 | `check_gated_models.py` | HF gated-model probe |
 | `export_workflows_api.py` | UI → API workflow converter |
 | `generate_starters.py` | Synthesize starter inputs |
-| `setup_tunnel.sh` | Reverse SSH tunnel example for VPS → LAN |
 | `watch_cluster.sh` | Tail logs from N hosts simultaneously |
 | `dashboard/` | Static HTML/JS for the dashboard |
 | `CLUSTER.md` | Cluster architecture & gotchas |
