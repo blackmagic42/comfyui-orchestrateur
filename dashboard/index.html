@@ -644,19 +644,7 @@
     <div class="tower">
       <div class="main">
 
-        <!-- INSTANCES (control tower's primary subject) -->
-        <section class="box">
-          <h2>comfyui instances <span class="meta" id="inst-meta">scanning…</span></h2>
-          <div class="inst-grid" id="instGrid"><div class="empty">scanning ports…</div></div>
-        </section>
-
-        <!-- COMMANDS -->
-        <section class="box">
-          <h2>commands <span class="meta">whitelisted scripts on the local host</span></h2>
-          <div id="cmdContent"><div class="empty">loading…</div></div>
-        </section>
-
-        <!-- WORKFLOWS -->
+        <!-- WORKFLOWS — moved up: it's the primary navigation -->
         <section class="box">
           <h2>workflows <span class="meta" id="wf-meta">—</span></h2>
           <div class="pills" id="filterPills">
@@ -668,6 +656,18 @@
             <button class="pill" data-tab="submit">submit</button>
           </div>
           <div id="wfContent"><div class="empty">loading…</div></div>
+        </section>
+
+        <!-- INSTANCES -->
+        <section class="box">
+          <h2>comfyui instances <span class="meta" id="inst-meta">scanning…</span></h2>
+          <div class="inst-grid" id="instGrid"><div class="empty">scanning ports…</div></div>
+        </section>
+
+        <!-- COMMANDS -->
+        <section class="box">
+          <h2>commands <span class="meta">whitelisted scripts on the local host</span></h2>
+          <div id="cmdContent"><div class="empty">loading…</div></div>
         </section>
 
         <!-- MODEL ↔ WORKFLOW GRAPH -->
@@ -1416,17 +1416,20 @@ function renderLegend(families) {
 }
 function initGraph(data) {
   const svg = document.getElementById("graphSvg");
+  // Robust dimension lookup: rect.width is unreliable for SVG with width:100%.
+  // Fall back to clientWidth / parent / hardcoded default in that order.
   const rect = svg.getBoundingClientRect();
-  GRAPH_STATE.width = rect.width;
-  GRAPH_STATE.height = rect.height;
+  let W = rect.width  || svg.clientWidth  || svg.parentElement.clientWidth || 800;
+  let H = rect.height || svg.clientHeight || 560;
+  if (!Number.isFinite(W) || W < 100) W = 800;
+  if (!Number.isFinite(H) || H < 100) H = 560;
+  GRAPH_STATE.width = W;
+  GRAPH_STATE.height = H;
 
-  // Layer the nodes: workflows on a left ring, models on a right ring.
-  // Then run a brief force simulation to disentangle.
   const nodes = data.nodes.map(n => ({
     ...n,
     radius: n.type === "model" ? 5 : 4,
-    x: GRAPH_STATE.width / 2 + (Math.random() - 0.5) * 400,
-    y: GRAPH_STATE.height / 2 + (Math.random() - 0.5) * 400,
+    x: 0, y: 0,
     vx: 0, vy: 0,
   }));
   const idx = Object.fromEntries(nodes.map((n, i) => [n.id, i]));
@@ -1438,14 +1441,14 @@ function initGraph(data) {
   GRAPH_STATE.edges = edges;
 
   // Position nodes initially clustered by family using a polar layout.
-  const families = [...new Set(nodes.map(n => n.family))];
-  const cx = GRAPH_STATE.width / 2, cy = GRAPH_STATE.height / 2;
-  const R = Math.min(cx, cy) * 0.7;
+  const families = [...new Set(nodes.map(n => n.family || "unknown"))];
+  const cx = W / 2, cy = H / 2;
+  const R = Math.max(80, Math.min(cx, cy) * 0.7);
   families.forEach((fam, fi) => {
-    const angle = (fi / families.length) * Math.PI * 2;
+    const angle = (fi / Math.max(1, families.length)) * Math.PI * 2;
     const ax = cx + Math.cos(angle) * R * 0.65;
     const ay = cy + Math.sin(angle) * R * 0.65;
-    const famNodes = nodes.filter(n => n.family === fam);
+    const famNodes = nodes.filter(n => (n.family || "unknown") === fam);
     famNodes.forEach((n, ni) => {
       const local = (ni / Math.max(1, famNodes.length)) * Math.PI * 2;
       const lr = n.type === "workflow" ? 35 : 60;
@@ -1453,8 +1456,13 @@ function initGraph(data) {
       n.y = ay + Math.sin(local) * lr;
     });
   });
+  // Sanity pass: any non-finite coordinate gets reset to centre + jitter
+  for (const n of nodes) {
+    if (!Number.isFinite(n.x)) n.x = cx + (Math.random()-0.5) * 50;
+    if (!Number.isFinite(n.y)) n.y = cy + (Math.random()-0.5) * 50;
+  }
 
-  runSimulation(120);   // 120 iterations is enough for a stable layout
+  runSimulation(150);
   bindGraphInteractions();
   drawGraph();
 }
@@ -1462,39 +1470,77 @@ function initGraph(data) {
 function runSimulation(iterations) {
   const { nodes, edges, width, height } = GRAPH_STATE;
   const cx = width / 2, cy = height / 2;
+  // Bounds for safety — keep nodes inside a reasonable canvas
+  const margin = 20;
+  const minX = -margin, maxX = width + margin;
+  const minY = -margin, maxY = height + margin;
+  // Force caps prevent runaway acceleration that explodes into Infinity/NaN.
+  const F_REPULSE = 60;            // gentler than the 280 we had before
+  const F_PAIR_MAX = 30;           // hard cap per pair
+  const V_MAX = 25;                // hard cap on per-step velocity
+
   for (let it = 0; it < iterations; it++) {
-    // Repulsion (linear-time approximation: every-node-against-every-node — ok for ~500 nodes)
+    // Reset velocities each iteration (Verlet-ish style: velocity is force, not momentum)
+    for (const n of nodes) { n.vx = 0; n.vy = 0; }
+
+    // Repulsion — every pair
     for (let i = 0; i < nodes.length; i++) {
+      const a = nodes[i];
       for (let j = i + 1; j < nodes.length; j++) {
-        const a = nodes[i], b = nodes[j];
+        const b = nodes[j];
         let dx = a.x - b.x, dy = a.y - b.y;
         let d2 = dx * dx + dy * dy;
-        if (d2 < 0.01) { dx = (Math.random()-0.5); dy = (Math.random()-0.5); d2 = 0.5; }
-        const f = 280 / d2;
+        if (!Number.isFinite(d2) || d2 < 1) {
+          dx = (Math.random() - 0.5) * 2;
+          dy = (Math.random() - 0.5) * 2;
+          d2 = Math.max(1, dx*dx + dy*dy);
+        }
         const dist = Math.sqrt(d2);
+        let f = F_REPULSE / d2;
+        if (f > F_PAIR_MAX) f = F_PAIR_MAX;
         const fx = (dx / dist) * f, fy = (dy / dist) * f;
         a.vx += fx; a.vy += fy;
         b.vx -= fx; b.vy -= fy;
       }
     }
-    // Attraction along edges
+
+    // Spring attraction along edges
     for (const e of edges) {
       const a = nodes[e.source], b = nodes[e.target];
       const dx = b.x - a.x, dy = b.y - a.y;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      const k = 0.012 * (dist - 50);
-      a.vx += dx * k; a.vy += dy * k;
-      b.vx -= dx * k; b.vy -= dy * k;
+      let dist = Math.sqrt(dx * dx + dy * dy);
+      if (!Number.isFinite(dist) || dist < 0.5) dist = 0.5;
+      const k = 0.02 * (dist - 60);
+      const fx = (dx / dist) * k * Math.min(dist, 200);
+      const fy = (dy / dist) * k * Math.min(dist, 200);
+      a.vx += fx; a.vy += fy;
+      b.vx -= fx; b.vy -= fy;
     }
+
     // Centring force
     for (const n of nodes) {
-      n.vx += (cx - n.x) * 0.001;
-      n.vy += (cy - n.y) * 0.001;
+      n.vx += (cx - n.x) * 0.01;
+      n.vy += (cy - n.y) * 0.01;
     }
-    // Apply velocity with damping
+
+    // Apply velocities, clamp to safe values, clamp position to canvas
     for (const n of nodes) {
-      n.vx *= 0.85; n.vy *= 0.85;
-      n.x += n.vx; n.y += n.vy;
+      // Velocity sanitation
+      if (!Number.isFinite(n.vx)) n.vx = 0;
+      if (!Number.isFinite(n.vy)) n.vy = 0;
+      if (n.vx >  V_MAX) n.vx =  V_MAX;
+      if (n.vx < -V_MAX) n.vx = -V_MAX;
+      if (n.vy >  V_MAX) n.vy =  V_MAX;
+      if (n.vy < -V_MAX) n.vy = -V_MAX;
+      n.x += n.vx;
+      n.y += n.vy;
+      // Position bounds
+      if (!Number.isFinite(n.x)) n.x = cx;
+      if (!Number.isFinite(n.y)) n.y = cy;
+      if (n.x < minX) n.x = minX;
+      if (n.x > maxX) n.x = maxX;
+      if (n.y < minY) n.y = minY;
+      if (n.y > maxY) n.y = maxY;
     }
   }
 }
@@ -1503,6 +1549,9 @@ function drawGraph() {
   const { nodes, edges, hoverId, zoom, panX, panY } = GRAPH_STATE;
   const svg = document.getElementById("graphSvg");
 
+  // Final defensive pass — nothing reaches the SVG with NaN/Infinity coords
+  const safe = v => (Number.isFinite(v) ? v : 0);
+
   // Edges below, nodes above. <g> for transform (zoom + pan).
   const g = `<g transform="translate(${panX} ${panY}) scale(${zoom})">`;
   const edgeHtml = edges.map(e => {
@@ -1510,18 +1559,17 @@ function drawGraph() {
     const isHover = (a.id === hoverId || b.id === hoverId);
     const stroke = isHover ? a.color : "rgba(245,163,11,0.10)";
     const w = isHover ? 1.4 : 0.5;
-    return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${stroke}" stroke-width="${w}" />`;
+    return `<line x1="${safe(a.x)}" y1="${safe(a.y)}" x2="${safe(b.x)}" y2="${safe(b.y)}" stroke="${stroke}" stroke-width="${w}" />`;
   }).join("");
 
   const nodeHtml = nodes.map((n, i) => {
     const isHover = n.id === hoverId;
     const r = n.radius * (isHover ? 1.6 : 1);
+    const x = safe(n.x), y = safe(n.y);
     if (n.type === "workflow") {
-      // Square for workflows
-      return `<rect x="${n.x - r}" y="${n.y - r}" width="${r*2}" height="${r*2}" fill="${n.color}" stroke="${isHover ? '#fff' : 'rgba(0,0,0,0.4)'}" stroke-width="${isHover ? 1 : 0.5}" data-i="${i}" style="cursor:pointer" />`;
+      return `<rect x="${x - r}" y="${y - r}" width="${r*2}" height="${r*2}" fill="${n.color}" stroke="${isHover ? '#fff' : 'rgba(0,0,0,0.4)'}" stroke-width="${isHover ? 1 : 0.5}" data-i="${i}" style="cursor:pointer" />`;
     } else {
-      // Circle for models
-      return `<circle cx="${n.x}" cy="${n.y}" r="${r}" fill="${n.color}" stroke="${isHover ? '#fff' : 'rgba(0,0,0,0.4)'}" stroke-width="${isHover ? 1 : 0.5}" data-i="${i}" style="cursor:pointer" />`;
+      return `<circle cx="${x}" cy="${y}" r="${r}" fill="${n.color}" stroke="${isHover ? '#fff' : 'rgba(0,0,0,0.4)'}" stroke-width="${isHover ? 1 : 0.5}" data-i="${i}" style="cursor:pointer" />`;
     }
   }).join("");
 
