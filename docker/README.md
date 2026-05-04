@@ -19,11 +19,12 @@ docker build -f scripts/docker/Dockerfile -t comfyui-creation-ops:latest .
 
 Build args (override with `--build-arg`):
 - `CUDA_VERSION` (default `12.6.3`)
-- `PYTORCH_INDEX` (default `https://download.pytorch.org/whl/cu126`)
+- `PYTORCH_INDEX` (default `https://download.pytorch.org/whl/cu128` — ships
+  sm_120 kernels for RTX 50-series / Blackwell)
 - `UBUNTU_VERSION` (default `22.04`)
 
-For CUDA 13 hosts, pass `--build-arg PYTORCH_INDEX=https://download.pytorch.org/whl/cu130`
-and a matching `CUDA_VERSION`.
+For older GPUs (Ampere / Ada / Hopper) the cu126 wheel is smaller and works
+fine — pass `--build-arg PYTORCH_INDEX=https://download.pytorch.org/whl/cu126`.
 
 ## Run
 

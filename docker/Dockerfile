@@ -9,7 +9,10 @@
 
 ARG CUDA_VERSION=12.6.3
 ARG UBUNTU_VERSION=22.04
-ARG PYTORCH_INDEX=https://download.pytorch.org/whl/cu126
+# Default to cu128 so torch ships sm_120 kernels (Blackwell / RTX 50-series).
+# Override with --build-arg PYTORCH_INDEX=https://download.pytorch.org/whl/cu126
+# for older GPUs if needed.
+ARG PYTORCH_INDEX=https://download.pytorch.org/whl/cu128
 
 # ─── Stage 1: builder ──────────────────────────────────────────────────────────
 # Compiles wheels and installs Python dependencies into a venv that we copy

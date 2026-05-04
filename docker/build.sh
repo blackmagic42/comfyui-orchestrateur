@@ -12,7 +12,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 IMAGE_NAME="${IMAGE_NAME:-comfyui-creation-ops}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 CUDA_VERSION="${CUDA_VERSION:-12.6.3}"
-PYTORCH_INDEX="${PYTORCH_INDEX:-https://download.pytorch.org/whl/cu126}"
+PYTORCH_INDEX="${PYTORCH_INDEX:-https://download.pytorch.org/whl/cu128}"
 
 echo "Build context : ${REPO_ROOT}"
 echo "Image         : ${IMAGE_NAME}:${IMAGE_TAG}"
