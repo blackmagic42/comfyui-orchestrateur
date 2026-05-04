@@ -1,15 +1,13 @@
 # Modified ComfyUI — Docker image
 
-This directory ships the `Dockerfile` that bakes the **local, modified** `ComfyUI/`
-tree (including `custom_nodes/`, `blueprints/`, `middleware/`, and
-`manager_requirements.txt`) into a runnable image.
-
-Models, inputs, outputs and user data are **not** baked in — they are mounted at
-runtime so rebuilds stay fast and large weights stay on the host.
+Bakes only the **modified ComfyUI core** (`ComfyUI/` source minus
+`custom_nodes/`, `models/`, and runtime state). Custom nodes and weights are
+expected to be installed at runtime — typically via ComfyUI-Manager once the
+container is up, or by mounting them in.
 
 ## Build
 
-The build context is the **repo root** (one level above `scripts/`). Either:
+The build context is the **repo root** (one level above `scripts/`):
 
 ```bash
 # from anywhere
@@ -29,7 +27,7 @@ and a matching `CUDA_VERSION`.
 
 ## Run
 
-NVIDIA runtime + GPU passthrough required (Docker Desktop on Windows uses WSL2).
+NVIDIA runtime + GPU passthrough required.
 
 ```bash
 docker run --rm --gpus all -p 8188:8188 \
@@ -37,6 +35,7 @@ docker run --rm --gpus all -p 8188:8188 \
   -v "$(pwd)/ComfyUI/input:/app/ComfyUI/input" \
   -v "$(pwd)/ComfyUI/output:/app/ComfyUI/output" \
   -v "$(pwd)/ComfyUI/user:/app/ComfyUI/user" \
+  -v "$(pwd)/ComfyUI/custom_nodes:/app/ComfyUI/custom_nodes" \
   comfyui-creation-ops:latest
 ```
 
@@ -51,22 +50,20 @@ ComfyUI listens on `http://localhost:8188`.
 
 ## What's baked in
 
-- ComfyUI v0.19.5 source from `ComfyUI/`
-- All `custom_nodes/` present at build time (their `requirements.txt` are
-  installed best-effort — a broken pin in one node won't fail the image)
+- ComfyUI v0.19.5 core source from `ComfyUI/`
 - `blueprints/` (pre-made workflow JSON)
 - `middleware/cache_middleware.py`
-- `manager_requirements.txt`
+- `alembic_db/` (DB migrations applied on startup)
 
 ## What's *not* baked in
 
+- `custom_nodes/` — install via ComfyUI-Manager or mount from the host
 - `models/`, `input/`, `output/`, `temp/`, `user/` — mount these
 - `tests/`, `tests-unit/`, `.git/`, `__pycache__/` — excluded via `.dockerignore`
-- LoRA weights (`*.safetensors`, `*.ckpt`, etc. inside custom_nodes)
 
 ## Notes
 
-- First build is slow (CUDA base + torch + transformers + every custom-node
-  dep). Expect 20–40 min and ~10–15 GB image size.
+- First build is dominated by the CUDA base image (~2 GB) and the torch wheel.
+  Expect 5–10 min on a warm cache and ~6–8 GB image size.
 - The Creation Ops Flask proxy (`web/`) is **not** included — it runs separately
   and proxies to this container's port 8188.

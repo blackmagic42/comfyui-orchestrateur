@@ -1,14 +1,11 @@
 # syntax=docker/dockerfile:1.7
 #
-# Modified ComfyUI image — bundles the local ComfyUI/ tree (including custom_nodes,
-# blueprints, middleware, and manager_requirements.txt) so it ships exactly what the
-# host runs today.
+# Modified ComfyUI image — bundles the local ComfyUI/ core only.
+# No custom_nodes, no models, no input/output data: those are mounted at runtime
+# (or installed via ComfyUI-Manager once the container is up).
 #
 # Build context MUST be the creation-ops repo root, e.g.:
 #     docker build -f scripts/docker/Dockerfile -t comfyui-creation-ops:latest .
-#
-# Models, outputs, inputs, temp, user data and venv are excluded via .dockerignore
-# and should be mounted in at runtime (see scripts/docker/README.md).
 
 ARG CUDA_VERSION=12.6.3
 ARG UBUNTU_VERSION=22.04
@@ -45,18 +42,7 @@ WORKDIR /app
 # Layer the requirements files first so dependency installs can be cached
 # independently of the rest of the source tree.
 COPY ComfyUI/requirements.txt /tmp/req-comfyui.txt
-COPY ComfyUI/manager_requirements.txt /tmp/req-manager.txt
-RUN pip install -r /tmp/req-comfyui.txt -r /tmp/req-manager.txt
-
-# Custom node requirements are installed best-effort: a single broken pin in a
-# third-party node should not abort the whole image build.
-COPY ComfyUI/custom_nodes /tmp/custom_nodes
-RUN set -eux; \
-    find /tmp/custom_nodes -maxdepth 3 -name requirements.txt | while read -r req; do \
-        echo "── installing $req"; \
-        pip install -r "$req" || echo "WARN: failed to install $req (continuing)"; \
-    done; \
-    rm -rf /tmp/custom_nodes
+RUN pip install -r /tmp/req-comfyui.txt
 
 # ─── Stage 2: runtime ──────────────────────────────────────────────────────────
 FROM nvidia/cuda:${CUDA_VERSION}-cudnn-runtime-ubuntu${UBUNTU_VERSION} AS runtime

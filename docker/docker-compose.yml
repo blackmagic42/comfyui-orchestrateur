@@ -33,3 +33,6 @@ services:
       - ${COMFYUI_INPUT_DIR:-../../ComfyUI/input}:/app/ComfyUI/input
       - ${COMFYUI_OUTPUT_DIR:-../../ComfyUI/output}:/app/ComfyUI/output
       - ${COMFYUI_USER_DIR:-../../ComfyUI/user}:/app/ComfyUI/user
+      # Custom nodes are not baked into the image — mount them from the host
+      # (or let ComfyUI-Manager install them into this volume).
+      - ${COMFYUI_CUSTOM_NODES_DIR:-../../ComfyUI/custom_nodes}:/app/ComfyUI/custom_nodes

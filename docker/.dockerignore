@@ -1,35 +1,32 @@
-# Build context is the creation-ops repo root. Keep it small: we only need
-# ComfyUI/ source, not the venv, models, or sibling projects.
+# Build context is the creation-ops repo root. Keep it small: we only need the
+# ComfyUI/ core source — no custom_nodes, no models, no sibling projects.
 
-# Everything outside ComfyUI/ — re-include what the build actually reads.
+# Drop everything outside ComfyUI/, then re-include the core.
 **/*
 !ComfyUI/
 
-# Within ComfyUI/, drop runtime state and large binaries.
+# Inside ComfyUI/, drop everything that is not part of the core source.
 ComfyUI/.git/
 ComfyUI/.github/
+ComfyUI/.ci/
 ComfyUI/__pycache__/
 ComfyUI/**/__pycache__/
 ComfyUI/**/*.py[cod]
+
+# Custom nodes are installed at runtime via ComfyUI-Manager — never bake them.
+ComfyUI/custom_nodes/**
+
+# Runtime state — must be mounted, never baked.
 ComfyUI/models/**
 ComfyUI/input/**
 ComfyUI/output/**
 ComfyUI/temp/**
 ComfyUI/user/**
+
+# Tests are not needed in a runtime image. (alembic_db/ IS needed — it holds
+# the SQLAlchemy migrations the app applies on startup.)
 ComfyUI/tests/
 ComfyUI/tests-unit/
-ComfyUI/.ci/
-ComfyUI/alembic_db/
 
 # Keep the placeholder file in input/ so default workflows still resolve.
 !ComfyUI/input/example.png
-
-# Custom-node noise: caches, vendored venvs, local data.
-ComfyUI/custom_nodes/**/.git/
-ComfyUI/custom_nodes/**/__pycache__/
-ComfyUI/custom_nodes/**/node_modules/
-ComfyUI/custom_nodes/**/*.safetensors
-ComfyUI/custom_nodes/**/*.ckpt
-ComfyUI/custom_nodes/**/*.pth
-ComfyUI/custom_nodes/**/*.bin
-ComfyUI/custom_nodes/**/models/**
