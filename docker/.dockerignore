@@ -1,0 +1,35 @@
+# Build context is the creation-ops repo root. Keep it small: we only need
+# ComfyUI/ source, not the venv, models, or sibling projects.
+
+# Everything outside ComfyUI/ — re-include what the build actually reads.
+**/*
+!ComfyUI/
+
+# Within ComfyUI/, drop runtime state and large binaries.
+ComfyUI/.git/
+ComfyUI/.github/
+ComfyUI/__pycache__/
+ComfyUI/**/__pycache__/
+ComfyUI/**/*.py[cod]
+ComfyUI/models/**
+ComfyUI/input/**
+ComfyUI/output/**
+ComfyUI/temp/**
+ComfyUI/user/**
+ComfyUI/tests/
+ComfyUI/tests-unit/
+ComfyUI/.ci/
+ComfyUI/alembic_db/
+
+# Keep the placeholder file in input/ so default workflows still resolve.
+!ComfyUI/input/example.png
+
+# Custom-node noise: caches, vendored venvs, local data.
+ComfyUI/custom_nodes/**/.git/
+ComfyUI/custom_nodes/**/__pycache__/
+ComfyUI/custom_nodes/**/node_modules/
+ComfyUI/custom_nodes/**/*.safetensors
+ComfyUI/custom_nodes/**/*.ckpt
+ComfyUI/custom_nodes/**/*.pth
+ComfyUI/custom_nodes/**/*.bin
+ComfyUI/custom_nodes/**/models/**
