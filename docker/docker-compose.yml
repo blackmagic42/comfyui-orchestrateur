@@ -1,0 +1,38 @@
+# Run the modified ComfyUI image with persistent state mounted from the host.
+# Models / inputs / outputs / user data live outside the image so they survive
+# rebuilds and can be shared with the host install.
+#
+# Usage:
+#     cd scripts/docker
+#     docker compose up -d
+#
+# Override the host paths with env vars (e.g. COMFYUI_MODELS_DIR=/mnt/shared/models).
+
+services:
+  comfyui:
+    image: ${IMAGE_NAME:-comfyui-creation-ops}:${IMAGE_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: scripts/docker/Dockerfile
+    container_name: comfyui
+    restart: unless-stopped
+    ports:
+      - "${COMFYUI_PORT:-8188}:8188"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ${COMFYUI_MODELS_DIR:-../../ComfyUI/models}:/app/ComfyUI/models
+      - ${COMFYUI_INPUT_DIR:-../../ComfyUI/input}:/app/ComfyUI/input
+      - ${COMFYUI_OUTPUT_DIR:-../../ComfyUI/output}:/app/ComfyUI/output
+      - ${COMFYUI_USER_DIR:-../../ComfyUI/user}:/app/ComfyUI/user
+      # Custom nodes are not baked into the image — mount them from the host
+      # (or let ComfyUI-Manager install them into this volume).
+      - ${COMFYUI_CUSTOM_NODES_DIR:-../../ComfyUI/custom_nodes}:/app/ComfyUI/custom_nodes
